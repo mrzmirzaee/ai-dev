@@ -122,3 +122,44 @@ describe("detectProject", () => {
     expect(info.isProjectRoot).toBe(true);
   });
 });
+
+describe("multi-stack project detection", () => {
+  it("detects Symfony from composer dependencies", () => {
+    fs.writeJsonSync(path.join(tmp, "composer.json"), {
+      require: { "symfony/framework-bundle": "^7.0" },
+    });
+    expect(detectProjectType(tmp)).toBe("Symfony");
+  });
+
+  it("detects Django from manage.py", () => {
+    fs.writeFileSync(path.join(tmp, "manage.py"), "#!/usr/bin/env python\n");
+    expect(detectProjectType(tmp)).toBe("Django");
+  });
+
+  it("detects FastAPI from requirements.txt", () => {
+    fs.writeFileSync(path.join(tmp, "requirements.txt"), "fastapi\nuvicorn\n");
+    expect(detectProjectType(tmp)).toBe("FastAPI");
+  });
+
+  it("detects Kotlin JVM from build.gradle.kts", () => {
+    fs.writeFileSync(path.join(tmp, "settings.gradle.kts"), "pluginManagement {}\n");
+    fs.writeFileSync(path.join(tmp, "build.gradle.kts"), "plugins { kotlin(\"jvm\") version \"2.0.0\" }\n");
+    fs.ensureDirSync(path.join(tmp, "src", "main", "kotlin"));
+    expect(detectProjectType(tmp)).toBe("Kotlin");
+  });
+
+  it("detects Android Kotlin from Gradle and AndroidManifest", () => {
+    fs.writeFileSync(path.join(tmp, "settings.gradle.kts"), "pluginManagement {}\n");
+    fs.ensureDirSync(path.join(tmp, "app", "src", "main"));
+    fs.writeFileSync(path.join(tmp, "app", "build.gradle.kts"), "plugins { id(\"com.android.application\") }\n");
+    fs.writeFileSync(path.join(tmp, "app", "src", "main", "AndroidManifest.xml"), "<manifest />\n");
+    expect(detectProjectType(tmp)).toBe("Android Kotlin");
+  });
+
+  it("detects Kotlin Multiplatform from commonMain", () => {
+    fs.writeFileSync(path.join(tmp, "settings.gradle.kts"), "pluginManagement {}\n");
+    fs.writeFileSync(path.join(tmp, "build.gradle.kts"), "plugins { kotlin(\"multiplatform\") version \"2.0.0\" }\n");
+    fs.ensureDirSync(path.join(tmp, "shared", "src", "commonMain", "kotlin"));
+    expect(detectProjectType(tmp)).toBe("Kotlin Multiplatform");
+  });
+});

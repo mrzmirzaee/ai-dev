@@ -193,8 +193,25 @@ function toRel(p: string): string {
 }
 
 
-async function detectCodeOnlyTarget(root: string): Promise<string> {
-  const preferred = ["src", "app", "pages", "components", "lib", "server", "api"];
+export async function detectCodeOnlyTarget(root: string): Promise<string> {
+  const preferred = [
+    "shared/src/commonMain/kotlin",
+    "composeApp/src/commonMain/kotlin",
+    "src/commonMain/kotlin",
+    "app/src/main/kotlin",
+    "app/src/main/java",
+    "src/main/kotlin",
+    "src/main/java",
+    "src",
+    "app",
+    "pages",
+    "components",
+    "lib",
+    "server",
+    "api",
+    "routes",
+    "database/migrations",
+  ];
   for (const dir of preferred) {
     if (await fs.pathExists(path.join(root, dir))) return dir;
   }

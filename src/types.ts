@@ -12,8 +12,14 @@ export type ProjectType =
   | "Vite"
   | "Node.js"
   | "Python"
+  | "Django"
+  | "FastAPI"
   | "Laravel"
+  | "Symfony"
   | "PHP"
+  | "Kotlin"
+  | "Android Kotlin"
+  | "Kotlin Multiplatform"
   | "Unknown";
 
 /**
@@ -113,8 +119,14 @@ export const AiDevConfigSchema = z.object({
       "Vite",
       "Node.js",
       "Python",
+      "Django",
+      "FastAPI",
       "Laravel",
+      "Symfony",
       "PHP",
+      "Kotlin",
+      "Android Kotlin",
+      "Kotlin Multiplatform",
       "Unknown",
     ])
     .optional(),

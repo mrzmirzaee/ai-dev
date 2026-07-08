@@ -241,3 +241,17 @@ describe("graphRebuildCommand backend resolution (flag > config > default)", () 
     expect(graphify.buildGraph).not.toHaveBeenCalled();
   });
 });
+
+describe("detectCodeOnlyTarget", () => {
+  it("prefers KMP commonMain target", async () => {
+    const { detectCodeOnlyTarget } = await import("../src/commands/graph.js");
+    await fs.ensureDir(path.join(tmp, "shared", "src", "commonMain", "kotlin"));
+    await expect(detectCodeOnlyTarget(tmp)).resolves.toBe("shared/src/commonMain/kotlin");
+  });
+
+  it("detects Android Kotlin source target", async () => {
+    const { detectCodeOnlyTarget } = await import("../src/commands/graph.js");
+    await fs.ensureDir(path.join(tmp, "app", "src", "main", "kotlin"));
+    await expect(detectCodeOnlyTarget(tmp)).resolves.toBe("app/src/main/kotlin");
+  });
+});

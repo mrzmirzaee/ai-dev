@@ -67,6 +67,23 @@ const IMPORTANT_FOLDERS = [
   "__tests__",
   "stories",
   ".storybook",
+  "app",
+  "routes",
+  "database",
+  "database/migrations",
+  "src/main/kotlin",
+  "src/main/java",
+  "app/src/main/kotlin",
+  "app/src/main/java",
+  "shared",
+  "shared/src/commonMain",
+  "shared/src/commonMain/kotlin",
+  "composeApp",
+  "composeApp/src/commonMain",
+  "src/commonMain",
+  "src/commonMain/kotlin",
+  "src/androidMain",
+  "src/iosMain",
 ];
 
 function allDeps(pkg: Record<string, unknown> | null): Record<string, string> {
@@ -95,6 +112,12 @@ export async function detectProjectContext(root: string, type: ProjectType): Pro
   const scripts = ((pkg?.scripts as Record<string, string> | undefined) ?? {});
   const architectureHints: string[] = [];
 
+  if (["PHP", "Laravel", "Symfony"].includes(type)) technologies.push(type === "PHP" ? "PHP" : type, "Composer");
+  if (["Python", "Django", "FastAPI"].includes(type)) technologies.push(type, "Python");
+  if (["Kotlin", "Android Kotlin", "Kotlin Multiplatform"].includes(type)) technologies.push("Kotlin", "Gradle");
+  if (type === "Android Kotlin") technologies.push("Android");
+  if (type === "Kotlin Multiplatform") technologies.push("Kotlin Multiplatform");
+
   if (type === "Next.js") {
     if (folders.includes("src")) architectureHints.push("Primary application code appears to live under `src/`.");
     if (await fs.pathExists(path.join(root, "src", "app"))) architectureHints.push("This project appears to use the Next.js App Router under `src/app`.");
@@ -109,6 +132,18 @@ export async function detectProjectContext(root: string, type: ProjectType): Pro
   if (technologies.includes("Tailwind CSS")) architectureHints.push("Prefer existing Tailwind utility conventions and design tokens/classes over ad-hoc CSS.");
   if (technologies.includes("Leaflet") || technologies.includes("React Leaflet")) architectureHints.push("Map-related code can be sensitive to browser-only APIs; check SSR/client boundaries before editing.");
   if (technologies.includes("Sentry")) architectureHints.push("Do not remove monitoring/error boundaries without an explicit product or ops reason.");
+
+  if (type === "Laravel") architectureHints.push("Follow Laravel conventions in `app/`, `routes/`, `config/`, and `database/migrations`; do not edit `vendor/` directly.");
+  else if (type === "Symfony") architectureHints.push("Follow Symfony conventions in `src/`, `config/`, and `templates`; do not edit `vendor/` directly.");
+  else if (type === "PHP") architectureHints.push("Respect Composer autoloading and existing PHP module boundaries; do not edit `vendor/` directly.");
+
+  if (type === "Django") architectureHints.push("Respect Django app boundaries, `manage.py`, settings modules, migrations, and URL routing before moving code.");
+  else if (type === "FastAPI") architectureHints.push("Follow existing FastAPI router/dependency/service boundaries before adding new endpoints or dependencies.");
+  else if (type === "Python") architectureHints.push("Respect `pyproject.toml`/requirements and existing Python package boundaries; do not edit virtualenv folders.");
+
+  if (type === "Kotlin Multiplatform") architectureHints.push("Respect KMP source sets: keep shared logic in `commonMain`, platform code in `androidMain`/`iosMain`, and use expect/actual for platform APIs.");
+  else if (type === "Android Kotlin") architectureHints.push("Respect Android Gradle module boundaries, manifests, resources, and `app/src/main/kotlin` or `app/src/main/java` source roots.");
+  else if (type === "Kotlin") architectureHints.push("Respect Gradle module boundaries and Kotlin source roots such as `src/main/kotlin`; check build files before changing dependencies.");
 
   return {
     type,
@@ -130,7 +165,7 @@ function scriptList(scripts: Record<string, string>): string {
   const entries = preferred
     .filter((key) => scripts[key])
     .map((key) => [`npm run ${key}`, scripts[key]] as const);
-  if (entries.length === 0) return "- Check `package.json` for available verification commands.";
+  if (entries.length === 0) return "- Check the project build files for verification commands (`package.json`, `composer.json`, `pyproject.toml`, or Gradle files).";
   return entries.map(([cmd, body]) => `- \`${cmd}\` — ${body}`).join("\n");
 }
 

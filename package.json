@@ -1,18 +1,25 @@
 {
-  "name": "ai-dev",
-  "version": "2.1.0",
-  "description": "Cross-platform CLI that bootstraps AI development tooling (Claude Code + Graphify + MCP) for any project.",
+  "name": "@mrmamado/ai-dev",
+  "version": "2.2.0",
+  "description": "Bootstrap any repository for AI coding tools.",
   "type": "module",
   "license": "MIT",
-  "author": "",
+  "author": "mrmamado",
+  "homepage": "https://www.npmjs.com/package/@mrmamado/ai-dev",
   "keywords": [
-    "cli",
-    "claude-code",
-    "graphify",
-    "mcp",
     "ai",
+    "ai-coding",
+    "agents",
+    "cli",
     "developer-tools",
-    "scaffolding"
+    "scaffolding",
+    "claude-code",
+    "opencode",
+    "codex",
+    "cursor",
+    "copilot",
+    "graphify",
+    "mcp"
   ],
   "bin": {
     "ai-dev": "./dist/index.js"
@@ -23,6 +30,9 @@
     "LICENSE",
     "ai-dev.config.example.json"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18"
   },
@@ -33,7 +43,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm lint && pnpm test && pnpm build"
   },
   "dependencies": {
     "chalk": "^5.3.0",

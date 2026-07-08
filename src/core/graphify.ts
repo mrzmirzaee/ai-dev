@@ -1,6 +1,7 @@
 import fs from "fs-extra";
 import path from "node:path";
 import { commandExists, resolveExecutable, run } from "./command.js";
+import { uvBinDirs } from "./platform.js";
 import { logger } from "./logger.js";
 
 /**
@@ -16,9 +17,49 @@ export const EXTRACT_INSTRUCTIONS_REL = path.join(
   "assistant-extract-instructions.md",
 );
 
-/** Is `uv` available on PATH? */
-export function hasUv(): Promise<boolean> {
-  return commandExists("uv");
+/** Is `uv` available on PATH or in a known install directory? */
+export async function hasUv(): Promise<boolean> {
+  if (await commandExists("uv")) return true;
+  return (await resolveExecutable("uv")) !== null;
+}
+
+export async function resolveUv(): Promise<string | null> {
+  return (await resolveExecutable("uv")) ?? ((await commandExists("uv")) ? "uv" : null);
+}
+
+/** Add common uv bin directories to PATH for the current process. */
+export function refreshUvPath(): void {
+  const delimiter = process.platform === "win32" ? ";" : ":";
+  const existing = new Set((process.env.PATH ?? "").split(delimiter).filter(Boolean));
+  for (const dir of uvBinDirs()) {
+    if (!existing.has(dir)) {
+      process.env.PATH = `${dir}${delimiter}${process.env.PATH ?? ""}`;
+      existing.add(dir);
+    }
+  }
+}
+
+/** Install uv using the official Astral standalone installer. */
+export async function installUv(): Promise<boolean> {
+  if (await hasUv()) return true;
+  logger.detail("Installing uv...");
+  const res = process.platform === "win32"
+    ? await run("powershell", ["-ExecutionPolicy", "ByPass", "-c", "irm https://astral.sh/uv/install.ps1 | iex"])
+    : await run("sh", ["-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"]);
+  if (!res.ok) {
+    if (res.stderr) logger.detail(res.stderr.split(/\r?\n/)[0] ?? "");
+    return false;
+  }
+  refreshUvPath();
+  return hasUv();
+}
+
+/** Ensure uv is available, installing it when missing. */
+export async function ensureUv(): Promise<boolean> {
+  if (await hasUv()) return true;
+  const installed = await installUv();
+  if (installed) logger.success("uv installed.");
+  return installed;
 }
 
 /**
@@ -28,18 +69,19 @@ export function hasUv(): Promise<boolean> {
 export async function installOrUpdateGraphify(): Promise<boolean> {
   // `uv tool upgrade` fails cleanly if not installed, so try install first
   // when the executable is missing, upgrade when present.
+  const uv = (await resolveUv()) ?? "uv";
   const already = await isGraphifyAvailable();
 
   if (already) {
     logger.detail(`Upgrading ${GRAPHIFY_PACKAGE}...`);
-    const up = await run("uv", ["tool", "upgrade", GRAPHIFY_PACKAGE]);
+    const up = await run(uv, ["tool", "upgrade", GRAPHIFY_PACKAGE]);
     if (up.ok) return true;
     logger.detail("Upgrade reported an issue; attempting install.");
   } else {
     logger.detail(`Installing ${GRAPHIFY_PACKAGE}...`);
   }
 
-  const install = await run("uv", ["tool", "install", GRAPHIFY_PACKAGE]);
+  const install = await run(uv, ["tool", "install", GRAPHIFY_PACKAGE]);
   if (!install.ok && install.stderr) {
     logger.detail(install.stderr.split(/\r?\n/)[0] ?? "");
   }
@@ -51,7 +93,11 @@ export async function installOrUpdateGraphify(): Promise<boolean> {
  */
 export async function isGraphifyAvailable(): Promise<boolean> {
   if (await commandExists(GRAPHIFY_BIN)) return true;
-  return (await resolveExecutable(GRAPHIFY_BIN)) !== null;
+  if ((await resolveExecutable(GRAPHIFY_BIN)) !== null) return true;
+  const uv = await resolveUv();
+  if (!uv) return false;
+  const probe = await run(uv, ["x", "--from", GRAPHIFY_PACKAGE, GRAPHIFY_BIN, "--help"]);
+  return probe.ok;
 }
 
 /**
@@ -61,13 +107,21 @@ export function resolveGraphify(): Promise<string | null> {
   return resolveExecutable(GRAPHIFY_BIN);
 }
 
+export async function graphifyCommand(): Promise<{ command: string; argsPrefix: string[] }> {
+  const resolved = await resolveGraphify();
+  if (resolved) return { command: resolved, argsPrefix: [] };
+  if (await commandExists(GRAPHIFY_BIN)) return { command: GRAPHIFY_BIN, argsPrefix: [] };
+  const uv = (await resolveUv()) ?? "uv";
+  return { command: uv, argsPrefix: ["x", "--from", GRAPHIFY_PACKAGE, GRAPHIFY_BIN] };
+}
+
 /**
  * Run `graphify claude install` in the project root, integrating Graphify with
  * Claude Code. Returns success.
  */
 export async function runGraphifyClaudeInstall(cwd: string): Promise<boolean> {
-  const bin = (await resolveGraphify()) ?? GRAPHIFY_BIN;
-  const res = await run(bin, ["claude", "install"], { cwd });
+  const graphify = await graphifyCommand();
+  const res = await run(graphify.command, [...graphify.argsPrefix, "claude", "install"], { cwd });
   if (!res.ok && res.stderr) logger.detail(res.stderr.split(/\r?\n/)[0] ?? "");
   return res.ok;
 }
@@ -108,7 +162,7 @@ export async function findGraphJson(cwd: string, target = "."): Promise<string |
 
 /** Return the first existing graph.json across root and common code-only targets. */
 export async function findAnyGraphJson(cwd: string): Promise<string | null> {
-  const targets = [".", "src", "app", "pages", "components", "lib", "server", "api"];
+  const targets = [".", "src", "app", "pages", "components", "lib", "server", "api", "src/main/kotlin", "src/main/java", "app/src/main/kotlin", "app/src/main/java", "src/commonMain/kotlin", "shared/src/commonMain/kotlin", "composeApp/src/commonMain/kotlin", "routes", "database/migrations"];
   for (const target of targets) {
     const found = await findGraphJson(cwd, target);
     if (found) return found;
@@ -245,9 +299,9 @@ export async function buildGraph(
 ): Promise<GraphOutcome> {
   const backend = options.backend ?? "claude-cli";
   const target = options.target ?? ".";
-  const bin = (await resolveGraphify()) ?? GRAPHIFY_BIN;
+  const graphify = await graphifyCommand();
 
-  const primary = await run(bin, [target], { cwd });
+  const primary = await run(graphify.command, [...graphify.argsPrefix, target], { cwd });
   const primaryCombined = `${primary.stdout}\n${primary.stderr}`;
   const assets = parseAssetSummary(primaryCombined);
 
@@ -266,7 +320,7 @@ export async function buildGraph(
   }
 
   logger.detail("Primary build needs semantic extraction; running extract...");
-  const extract = await run(bin, ["extract", target, "--backend", backend], {
+  const extract = await run(graphify.command, [...graphify.argsPrefix, "extract", target, "--backend", backend], {
     cwd,
   });
   const extractCombined = `${extract.stdout}\n${extract.stderr}`;
@@ -332,8 +386,8 @@ export async function buildGraphFromSemantic(
   cwd: string,
   semanticPath: string,
 ): Promise<SemanticOutcome> {
-  const bin = (await resolveGraphify()) ?? GRAPHIFY_BIN;
-  const res = await run(bin, ["extract", ".", "--semantic", semanticPath], {
+  const graphify = await graphifyCommand();
+  const res = await run(graphify.command, [...graphify.argsPrefix, "extract", ".", "--semantic", semanticPath], {
     cwd,
   });
 

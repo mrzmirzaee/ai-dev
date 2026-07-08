@@ -12,7 +12,7 @@ import {
   type ClaudeState,
   type ClaudeStatus,
 } from "../core/claude.js";
-import { findAnyGraphJson, hasUv, isGraphifyAvailable } from "../core/graphify.js";
+import { findAnyGraphJson, hasUv, isGraphifyAvailable, resolveUv } from "../core/graphify.js";
 import {
   ConfigError,
   enabledMcpTools,
@@ -262,9 +262,10 @@ export async function gatherDoctorFacts(
     fs.pathExists(copilotInstructionsPath),
   ]);
 
-  let graphifyy = false;
-  if (uv) {
-    const list = await run("uv", ["tool", "list"]);
+  let graphifyy = graphifyCmd;
+  if (uv && !graphifyy) {
+    const uvBin = (await resolveUv()) ?? "uv";
+    const list = await run(uvBin, ["tool", "list"]);
     graphifyy = list.ok && /graphifyy/i.test(list.stdout);
   }
 

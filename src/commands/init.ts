@@ -24,7 +24,7 @@ import {
 } from "../core/claude.js";
 import {
   buildGraph,
-  hasUv,
+  ensureUv,
   installOrUpdateGraphify,
   isGraphifyAvailable,
   runGraphifyClaudeInstall,
@@ -236,12 +236,14 @@ export async function initCommand(
 
   // --- uv + graphify --------------------------------------------------------
   logger.heading("Graphify");
-  const uvAvailable = await hasUv();
+  const uvAvailable = await ensureUv();
   if (!uvAvailable) {
     missingRequired = true;
-    logger.error("uv is not installed — required to install graphifyy.");
+    logger.error("uv is not installed and could not be installed automatically — required to install graphifyy.");
     logger.next(
-      "Install uv: https://docs.astral.sh/uv/getting-started/installation/",
+      process.platform === "win32"
+        ? "Install uv: powershell -ExecutionPolicy ByPass -c \"irm https://astral.sh/uv/install.ps1 | iex\""
+        : "Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh",
     );
   } else {
     logger.success("uv detected.");

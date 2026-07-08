@@ -38,6 +38,10 @@ const ROOT_MARKERS = [
   "go.mod",
   "Cargo.toml",
   "composer.json",
+  "settings.gradle",
+  "settings.gradle.kts",
+  "build.gradle",
+  "build.gradle.kts",
 ];
 
 /** Error thrown for a present-but-invalid config file. */

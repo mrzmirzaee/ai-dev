@@ -2,12 +2,20 @@
 
 A cross-platform CLI that bootstraps multi-agent AI development tooling for any project — Claude Code, OpenCode, Codex-compatible agents, Cursor, GitHub Copilot, and generic AI coding agents. It wires up Graphify (a codebase knowledge graph), prepares shared agent instruction artifacts such as `CLAUDE.md`, `AGENTS.md`, `opencode.jsonc`, Cursor rules, Copilot instructions, ignore files, and recommended MCP tools, and now generates project-aware guidance from your actual stack, scripts, and folder layout.
 
+
+## v2.2.0 highlights
+
+- Auto-installs `uv` during setup when it is missing, then refreshes PATH for the current terminal session.
+- Uses a shared Graphify resolver across `doctor`, `init`, and `graph rebuild`, including Windows uv tool paths and `uvx` fallback.
+- Adds project detection and guidance for PHP/Laravel/Symfony, Python/Django/FastAPI, Kotlin, Android Kotlin, and Kotlin Multiplatform/KMP.
+- Improves `--code-only` graph target detection for backend, Android, and KMP repositories.
+
 ## What it does
 
 Running `ai-dev init` or the interactive `ai-dev wizard` in a project will:
 
-- Detect the project root and project type (React, Vite, Next.js, NestJS, Node.js, Python, PHP/Laravel, or Unknown).
-- Check for `uv`, and install or upgrade the `graphifyy` package (executable: `graphify`).
+- Detect the project root and project type (Next.js, React/Vite, NestJS/Node.js, PHP/Laravel/Symfony, Python/Django/FastAPI, Kotlin, Android Kotlin, Kotlin Multiplatform/KMP, or Unknown).
+- Auto-install `uv` when missing, refresh the current PATH, then install or upgrade the `graphifyy` package (executable: `graphify`).
 - Locate `graphify` even when it is installed outside your `PATH` (common on Windows).
 - Let you choose AI coding providers: Claude Code, OpenCode, Codex / `AGENTS.md`, Cursor, GitHub Copilot, and Generic.
 - Detect Claude Code and OpenCode when those providers are enabled, and print install instructions if missing.
@@ -24,15 +32,15 @@ Everything is **idempotent**: run it as many times as you like.
 Run without installing:
 
 ```bash
-npx ai-dev init
+npx @mrmamado/ai-dev init
 ```
 
 Or install globally:
 
 ```bash
-npm install -g ai-dev
+npm install -g @mrmamado/ai-dev
 # or
-pnpm add -g ai-dev
+pnpm add -g @mrmamado/ai-dev
 ```
 
 Then:
@@ -232,7 +240,7 @@ Unknown keys are ignored with a warning (so future additions don't hard-fail an 
 
 ```bash
 # Full setup
-npx ai-dev init
+npx @mrmamado/ai-dev init
 
 # Interactive first-run wizard
 ai-dev wizard

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+*.log
+.ai-dev-setup.log
+.DS_Store
+.graphify/
+graphify-out/
+graph.json

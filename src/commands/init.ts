@@ -3,6 +3,11 @@ import process from "node:process";
 import ora from "ora";
 import { detectProject } from "../core/detect.js";
 import {
+  enabledMcpTools,
+  resolveClaudeSettings,
+  resolveProjectType,
+} from "../core/config.js";
+import {
   ensureBlock,
   ensureIgnoreLines,
   type FileChange,
@@ -20,7 +25,13 @@ import {
 } from "../core/graphify.js";
 import { renderGraphOutcome } from "./graph.js";
 import { enableFileLogging, logger } from "../core/logger.js";
-import { RECOMMENDED_MCP_TOOLS } from "../core/mcp.js";
+import {
+  ExitCode,
+  type AiDevConfig,
+  type ExitCodeValue,
+  type InitOptions,
+  type ProjectType,
+} from "../types.js";
 import {
   AI_DEV_MCP_END,
   AI_DEV_MCP_START,
@@ -35,7 +46,12 @@ import {
   GITIGNORE_LINES,
   IGNORE_SECTION_HEADER,
 } from "../templates/ignores.js";
-import { ExitCode, type ExitCodeValue, type InitOptions } from "../types.js";
+
+/** Optional config context passed from the CLI layer. */
+export interface InitContext {
+  config?: AiDevConfig;
+  projectTypeFlag?: ProjectType;
+}
 
 function describeChange(change: FileChange, file: string): void {
   if (change === "created") logger.success(`Created ${file}`);
@@ -49,14 +65,24 @@ function describeChange(change: FileChange, file: string): void {
 export async function initCommand(
   options: InitOptions,
   cwd = process.cwd(),
+  context: InitContext = {},
 ): Promise<ExitCodeValue> {
+  const config = context.config ?? {};
   const project = detectProject(cwd);
+  const effectiveType = resolveProjectType(
+    project.type,
+    config,
+    context.projectTypeFlag,
+  );
 
   enableFileLogging(path.join(project.root, ".ai-dev-setup.log"));
 
   logger.heading("ai-dev init");
   logger.info(`Project root: ${project.root}`);
-  logger.info(`Project type: ${project.type}`);
+  logger.info(`Project type: ${effectiveType}`);
+  if (effectiveType !== project.type) {
+    logger.detail(`(detected ${project.type}, overridden by config/flag)`);
+  }
 
   if (!project.isProjectRoot && !options.force) {
     logger.error(
@@ -74,16 +100,21 @@ export async function initCommand(
 
   // --- File setup (always safe, idempotent) ---------------------------------
   logger.heading("Configuring project files");
+  const claudeSettings = resolveClaudeSettings(config);
   try {
-    const claudeMd = path.join(project.root, "CLAUDE.md");
-    const claudeChange = await ensureBlock(
-      claudeMd,
-      AI_DEV_SETUP_START,
-      CLAUDE_MD_SETUP_BLOCK,
-      CLAUDE_MD_HEADER,
-      AI_DEV_SETUP_END,
-    );
-    describeChange(claudeChange, "CLAUDE.md");
+    if (claudeSettings.updateClaudeMd) {
+      const claudeMd = path.join(project.root, "CLAUDE.md");
+      const claudeChange = await ensureBlock(
+        claudeMd,
+        AI_DEV_SETUP_START,
+        CLAUDE_MD_SETUP_BLOCK,
+        CLAUDE_MD_HEADER,
+        AI_DEV_SETUP_END,
+      );
+      describeChange(claudeChange, "CLAUDE.md");
+    } else {
+      logger.detail("Skipping CLAUDE.md (claude.updateClaudeMd = false).");
+    }
 
     const gitignore = await ensureIgnoreLines(
       path.join(project.root, ".gitignore"),
@@ -138,10 +169,17 @@ export async function initCommand(
     const graphifyReady = await isGraphifyAvailable();
     if (graphifyReady) {
       logger.success("graphify command is available.");
-      // Integrate with Claude Code (best-effort).
-      const integrated = await runGraphifyClaudeInstall(project.root);
-      if (integrated) logger.success("Ran `graphify claude install`.");
-      else logger.warn("`graphify claude install` did not complete cleanly.");
+      // Integrate with Claude Code (best-effort). This rewrites CLAUDE.md, so
+      // it is skipped when the user opted out of CLAUDE.md updates.
+      if (claudeSettings.updateClaudeMd) {
+        const integrated = await runGraphifyClaudeInstall(project.root);
+        if (integrated) logger.success("Ran `graphify claude install`.");
+        else logger.warn("`graphify claude install` did not complete cleanly.");
+      } else {
+        logger.detail(
+          "Skipping `graphify claude install` (claude.updateClaudeMd = false).",
+        );
+      }
     } else {
       logger.warn("graphify command not found on PATH after install.");
       logger.detail(
@@ -182,24 +220,35 @@ export async function initCommand(
     logger.detail("Skipping MCP guidance (--skip-mcp).");
   } else {
     logger.heading("MCP tools (recommended)");
-    for (const tool of RECOMMENDED_MCP_TOOLS) {
+    const tools = enabledMcpTools(config);
+    if (tools.length === 0) {
+      logger.detail("All MCP tools disabled in config.");
+    }
+    for (const tool of tools) {
       logger.info(`  • ${tool.name}: ${tool.purpose}`);
     }
-    // Add optional MCP block to CLAUDE.md (idempotent).
-    try {
-      const claudeMd = path.join(project.root, "CLAUDE.md");
-      const change = await ensureBlock(
-        claudeMd,
-        AI_DEV_MCP_START,
-        CLAUDE_MD_MCP_BLOCK,
-        "",
-        AI_DEV_MCP_END,
+    // Add optional MCP block to CLAUDE.md (idempotent) — unless CLAUDE.md
+    // updates are disabled.
+    if (!claudeSettings.updateClaudeMd) {
+      logger.detail(
+        "Skipping MCP guidance block in CLAUDE.md (claude.updateClaudeMd = false).",
       );
-      if (change !== "unchanged") {
-        logger.success("Added MCP guidance block to CLAUDE.md.");
+    } else {
+      try {
+        const claudeMd = path.join(project.root, "CLAUDE.md");
+        const change = await ensureBlock(
+          claudeMd,
+          AI_DEV_MCP_START,
+          CLAUDE_MD_MCP_BLOCK,
+          "",
+          AI_DEV_MCP_END,
+        );
+        if (change !== "unchanged") {
+          logger.success("Added MCP guidance block to CLAUDE.md.");
+        }
+      } catch {
+        logger.warn("Could not add MCP guidance block to CLAUDE.md.");
       }
-    } catch {
-      logger.warn("Could not add MCP guidance block to CLAUDE.md.");
     }
     logger.next("Run `ai-dev mcp list` for setup commands.");
   }

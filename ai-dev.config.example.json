@@ -1,0 +1,17 @@
+{
+  "projectType": "Next.js",
+  "skipGraph": false,
+  "skipMcp": false,
+  "graph": {
+    "backend": "claude-cli"
+  },
+  "claude": {
+    "updateClaudeMd": true,
+    "requireAuth": true
+  },
+  "mcp": {
+    "context7": true,
+    "serena": true,
+    "playwright": true
+  }
+}

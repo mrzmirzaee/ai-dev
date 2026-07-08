@@ -1,9 +1,13 @@
 import path from "node:path";
 import process from "node:process";
 import { detectProject } from "../core/detect.js";
+import {
+  ConfigError,
+  enabledMcpTools,
+  loadConfig,
+} from "../core/config.js";
 import { ensureBlock } from "../core/files.js";
 import { logger } from "../core/logger.js";
-import { RECOMMENDED_MCP_TOOLS } from "../core/mcp.js";
 import {
   AI_DEV_MCP_END,
   AI_DEV_MCP_START,
@@ -13,10 +17,31 @@ import { ExitCode, type ExitCodeValue } from "../types.js";
 
 /**
  * List recommended MCP tools with descriptions and install commands.
+ * Honors the `mcp` toggles in config (disabled tools are omitted).
  */
-export function mcpListCommand(): ExitCodeValue {
+export async function mcpListCommand(
+  cwd = process.cwd(),
+): Promise<ExitCodeValue> {
   logger.heading("Recommended MCP tools");
-  for (const tool of RECOMMENDED_MCP_TOOLS) {
+
+  let tools;
+  try {
+    const { config } = await loadConfig(cwd);
+    tools = enabledMcpTools(config);
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      logger.error(`${err.message} (${err.filePath})`);
+      return ExitCode.SetupFailed;
+    }
+    throw err;
+  }
+
+  if (tools.length === 0) {
+    logger.detail("All MCP tools are disabled in config.");
+    return ExitCode.Success;
+  }
+
+  for (const tool of tools) {
     logger.info("");
     logger.raw(`  ${tool.name}`);
     logger.detail(tool.purpose);

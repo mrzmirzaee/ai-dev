@@ -132,6 +132,52 @@ Lists recommended MCP tools and their install commands:
 
 `ai-dev mcp guide` adds an MCP guidance block to `CLAUDE.md`.
 
+## Configuration
+
+`ai-dev` works with zero configuration. For per-project defaults, add an optional `ai-dev.config.json` (or `.ai-dev.json`) at the project root. It is discovered by walking up from the current directory and validated when present — an invalid file fails loudly rather than silently changing behavior.
+
+Supported config files: `ai-dev.config.json` and `.ai-dev.json`. **YAML is not supported yet** (no `.ai-dev.yml`).
+
+Precedence is always **CLI flag > config file > built-in default**, so config sets your defaults while flags still win for a one-off run.
+
+```jsonc
+{
+  // Override project-type detection
+  "projectType": "Next.js",
+  // Defaults for `ai-dev init`
+  "skipGraph": false,
+  "skipMcp": false,
+  // Backend used by `graphify extract` during `graph rebuild`
+  "graph": { "backend": "claude-cli" },
+  // Claude Code behavior
+  "claude": {
+    "updateClaudeMd": true,  // when false, `init` leaves CLAUDE.md untouched
+    "requireAuth": true      // when false, Claude auth/session issues are warnings, not blockers
+  },
+  // Which MCP tools to recommend (omit or set true to keep; false to hide)
+  "mcp": { "context7": true, "serena": true, "playwright": true }
+}
+```
+
+| Key | Type | Default | Effect |
+| --- | --- | --- | --- |
+| `projectType` | enum | auto-detected | Overrides detection in `init`/`doctor`. `--project-type` overrides this. |
+| `skipGraph` | boolean | `false` | Default for `init`. `--skip-graph` overrides. |
+| `skipMcp` | boolean | `false` | Default for `init`. `--skip-mcp` overrides. |
+| `graph.backend` | string | `"claude-cli"` | Backend for `graphify extract`. `--backend` overrides. |
+| `claude.updateClaudeMd` | boolean | `true` | When `false`, `init` skips creating/updating `CLAUDE.md` and its MCP block (still writes `.gitignore`/`.claudeignore`). |
+| `claude.requireAuth` | boolean | `true` | When `false`, Claude auth/session-limit problems are warnings and don't make `doctor` "Setup incomplete". |
+| `mcp.{context7,serena,playwright}` | boolean | `true` | A tool set to `false` is dropped from recommendations and from `doctor`'s optional checks. |
+
+Unknown keys are ignored with a warning (so future additions don't hard-fail an older CLI).
+
+### Config commands
+
+- `ai-dev config init` — write a starter `ai-dev.config.json` (with current defaults) at the project root. It never overwrites an existing `ai-dev.config.json` or `.ai-dev.json`.
+- `ai-dev config show` — print the effective, normalized config and its source (`ai-dev.config.json`, `.ai-dev.json`, or `defaults`).
+
+`ai-dev doctor` also reports the config as a row: `✔ ai-dev config (ai-dev.config.json)` when present, or `! ai-dev config (missing, using defaults)` when absent. An invalid config makes `doctor` fail with exit code 1.
+
 ## Examples
 
 ```bash

@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import {
   collectDoctorChecks,
+  gatherDoctorFacts,
+  factsToChecks,
   summarizeDoctor,
   claudeRows,
   type DoctorFacts,
@@ -12,6 +14,7 @@ import { ensureBlock, ensureIgnoreLines } from "../src/core/files.js";
 import { AI_DEV_SETUP_START, CLAUDE_MD_SETUP_BLOCK } from "../src/templates/claudeMd.js";
 import { CLAUDEIGNORE_LINES, GITIGNORE_LINES } from "../src/templates/ignores.js";
 import type { ClaudeStatus } from "../src/core/claude.js";
+import { RECOMMENDED_MCP_TOOLS } from "../src/core/mcp.js";
 import { ExitCode } from "../src/types.js";
 
 function readyClaude(overrides: Partial<ClaudeStatus> = {}): ClaudeStatus {
@@ -39,6 +42,9 @@ function healthyFacts(overrides: Partial<DoctorFacts> = {}): DoctorFacts {
     gitignoreOk: true,
     claudeignoreOk: true,
     mcpConfigured: { context7: true, serena: true, playwright: true },
+    enabledMcp: RECOMMENDED_MCP_TOOLS,
+    configPath: "/proj/ai-dev.config.json",
+    requireAuth: true,
     ...overrides,
   };
 }
@@ -199,5 +205,96 @@ describe("claudeRows", () => {
   it("shows session limit row with reset time", () => {
     const rows = claudeRows(readyClaude({ state: "session-limited", resetTime: "12:10am" }));
     expect(rows[1].detail).toContain("12:10am");
+  });
+});
+
+describe("doctor honors config (project type + MCP toggles)", () => {
+  let dtmp: string;
+  beforeEach(async () => {
+    dtmp = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-doctor-cfg-"));
+    await fs.writeJson(path.join(dtmp, "package.json"), { name: "d" });
+  });
+  afterEach(async () => {
+    await fs.remove(dtmp);
+  });
+
+  it("applies projectType override and omits disabled MCP tools", async () => {
+    const facts = await gatherDoctorFacts(dtmp, {
+      claudeStatus: readyClaude(),
+      config: { projectType: "Laravel", mcp: { serena: false } },
+    });
+    expect(facts.projectType).toBe("Laravel");
+    expect(facts.enabledMcp.map((t) => t.key)).toEqual([
+      "context7",
+      "playwright",
+    ]);
+
+    const labels = factsToChecks(facts).map((c) => c.label);
+    expect(labels).toContain("Context7 MCP");
+    expect(labels).not.toContain("Serena MCP");
+  });
+});
+
+describe("doctor config row", () => {
+  it("shows ok when a config file is present", () => {
+    const checks = factsToChecks(
+      healthyFacts({ configPath: "/proj/ai-dev.config.json" }),
+    );
+    const row = checks.find((c) => c.label === "ai-dev config");
+    expect(row?.status).toBe("ok");
+    expect(row?.detail).toBe("ai-dev.config.json");
+  });
+
+  it("warns (optional) when no config file is present", () => {
+    const checks = factsToChecks(healthyFacts({ configPath: null }));
+    const row = checks.find((c) => c.label === "ai-dev config");
+    expect(row?.status).toBe("warn");
+    expect(row?.severity).toBe("optional");
+    expect(row?.detail).toContain("using defaults");
+  });
+});
+
+describe("requireAuth summary handling", () => {
+  it("not-authenticated blocks readiness when requireAuth is true", () => {
+    const s = summarizeDoctor(
+      healthyFacts({
+        claude: readyClaude({ state: "not-authenticated" }),
+        requireAuth: true,
+      }),
+    );
+    expect(s.state).toBe("incomplete-claude");
+    expect(s.exitCode).toBe(ExitCode.SetupFailed);
+  });
+
+  it("not-authenticated is a warning (non-blocking) when requireAuth is false", () => {
+    const s = summarizeDoctor(
+      healthyFacts({
+        claude: readyClaude({ state: "not-authenticated" }),
+        requireAuth: false,
+      }),
+    );
+    expect(s.state).toBe("ready-with-warnings");
+    expect(s.exitCode).toBe(ExitCode.Success);
+  });
+
+  it("still-missing install stays blocking even with requireAuth false", () => {
+    const s = summarizeDoctor(
+      healthyFacts({
+        claude: {
+          state: "not-installed",
+          installed: false,
+          npmPackage: false,
+          execInPath: false,
+        },
+        requireAuth: false,
+      }),
+    );
+    expect(s.state).toBe("incomplete-claude");
+  });
+
+  it("claudeRows downgrades not-authenticated to warn when requireAuth is false", () => {
+    const rows = claudeRows(readyClaude({ state: "not-authenticated" }), false);
+    const authRow = rows.find((r) => r.label.includes("authentication"));
+    expect(authRow?.status).toBe("warn");
   });
 });

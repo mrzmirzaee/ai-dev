@@ -11,6 +11,7 @@ import {
   type GraphOutcome,
 } from "../core/graphify.js";
 import { detectProject } from "../core/detect.js";
+import { ConfigError, loadConfig, resolveBackend } from "../core/config.js";
 import { ensureBlock } from "../core/files.js";
 import { enableFileLogging, logger } from "../core/logger.js";
 import {
@@ -257,6 +258,21 @@ export async function graphRebuildCommand(
   const project = detectProject(cwd);
   enableFileLogging(path.join(project.root, ".ai-dev-setup.log"));
 
+  // Resolve the extract backend: explicit option > config file > default.
+  let backend = options.backend;
+  if (backend === undefined) {
+    try {
+      const { config } = await loadConfig(project.root);
+      backend = resolveBackend(undefined, config);
+    } catch (err) {
+      if (err instanceof ConfigError) {
+        logger.error(`${err.message} (${err.filePath})`);
+        return ExitCode.SetupFailed;
+      }
+      throw err;
+    }
+  }
+
   // --- semantic-file-driven build -----------------------------------------
   if (options.semantic) {
     const semanticPath = path.isAbsolute(options.semantic)
@@ -299,7 +315,7 @@ export async function graphRebuildCommand(
     stream: process.stdout,
   }).start();
   try {
-    const outcome = await buildGraph(project.root);
+    const outcome = await buildGraph(project.root, { backend });
     if (outcome.kind === "built") spinner.succeed("Graph rebuilt.");
     else if (outcome.kind === "instructions")
       spinner.info("Semantic extraction required.");

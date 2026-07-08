@@ -59,12 +59,28 @@ export interface InitOptions {
 export interface GraphRebuildOptions {
   /** Path to a pre-computed semantic extraction JSON, if provided. */
   semantic?: string;
+  /** Backend for `graphify extract` (resolved: flag > config > default). */
+  backend?: string;
 }
 
 /**
- * Zod schema for a lightweight, optional `.ai-dev.json` config file.
- * Not required for the CLI to function, but validated when present so
- * future configuration cannot silently drift into an invalid state.
+ * Raw init flags as parsed from the CLI. `undefined` means "not passed", which
+ * lets config values take effect; an explicit boolean always wins.
+ */
+export interface InitFlags {
+  yes?: boolean;
+  skipGraph?: boolean;
+  skipMcp?: boolean;
+  force?: boolean;
+  projectType?: ProjectType;
+}
+
+/**
+ * Zod schema for the optional `ai-dev.config.json` (or `.ai-dev.json`) config
+ * file. Every key is optional; when a file is present it is validated so
+ * configuration cannot silently drift into an invalid state.
+ *
+ * Precedence everywhere is: CLI flag > config file > built-in default.
  */
 export const AiDevConfigSchema = z.object({
   projectType: z
@@ -82,6 +98,21 @@ export const AiDevConfigSchema = z.object({
     .optional(),
   skipGraph: z.boolean().optional(),
   skipMcp: z.boolean().optional(),
+  graph: z
+    .object({
+      // Backend used for `graphify extract`. Kept as a permissive string so
+      // new Graphify backends aren't rejected across versions.
+      backend: z.string().min(1).optional(),
+    })
+    .optional(),
+  claude: z
+    .object({
+      /** Whether `init` creates/updates CLAUDE.md (and its MCP block). */
+      updateClaudeMd: z.boolean().optional(),
+      /** Whether Claude auth/session problems block doctor readiness. */
+      requireAuth: z.boolean().optional(),
+    })
+    .optional(),
   mcp: z
     .object({
       context7: z.boolean().optional(),

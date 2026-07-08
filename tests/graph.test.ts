@@ -173,3 +173,39 @@ describe("graph ignore-assets", () => {
     expect(await fs.pathExists(path.join(tmp, ".ai-dev", "graph-ignore-assets-applied.json"))).toBe(true);
   });
 });
+
+describe("graphRebuildCommand backend resolution (flag > config > default)", () => {
+  beforeEach(() => {
+    vi.mocked(graphify.buildGraph).mockResolvedValue({
+      kind: "built",
+      graphPath: "/x/graph.json",
+    });
+  });
+
+  it("passes the explicit --backend option through", async () => {
+    await graphRebuildCommand({ backend: "openai" }, tmp);
+    expect(graphify.buildGraph).toHaveBeenCalledWith(tmp, { backend: "openai" });
+  });
+
+  it("uses config graph.backend when no flag is given", async () => {
+    await fs.writeJson(path.join(tmp, "ai-dev.config.json"), {
+      graph: { backend: "gemini" },
+    });
+    await graphRebuildCommand({}, tmp);
+    expect(graphify.buildGraph).toHaveBeenCalledWith(tmp, { backend: "gemini" });
+  });
+
+  it("defaults to claude-cli when neither flag nor config is set", async () => {
+    await graphRebuildCommand({}, tmp);
+    expect(graphify.buildGraph).toHaveBeenCalledWith(tmp, {
+      backend: "claude-cli",
+    });
+  });
+
+  it("fails clearly on an invalid config file", async () => {
+    await fs.writeFile(path.join(tmp, "ai-dev.config.json"), "{ bad json");
+    const code = await graphRebuildCommand({}, tmp);
+    expect(code).toBe(ExitCode.SetupFailed);
+    expect(graphify.buildGraph).not.toHaveBeenCalled();
+  });
+});

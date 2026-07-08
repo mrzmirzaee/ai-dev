@@ -204,7 +204,16 @@ function detectClaudeErrors(
  *        d. "no LLM api key" original  -> no-provider
  *        e. otherwise                  -> failed (surface Graphify output)
  */
-export async function buildGraph(cwd: string): Promise<GraphOutcome> {
+export interface BuildGraphOptions {
+  /** Backend passed to `graphify extract` (default: "claude-cli"). */
+  backend?: string;
+}
+
+export async function buildGraph(
+  cwd: string,
+  options: BuildGraphOptions = {},
+): Promise<GraphOutcome> {
+  const backend = options.backend ?? "claude-cli";
   const bin = (await resolveGraphify()) ?? GRAPHIFY_BIN;
 
   const primary = await run(bin, ["."], { cwd });
@@ -226,7 +235,7 @@ export async function buildGraph(cwd: string): Promise<GraphOutcome> {
   }
 
   logger.detail("Primary build needs semantic extraction; running extract...");
-  const extract = await run(bin, ["extract", ".", "--backend", "claude-cli"], {
+  const extract = await run(bin, ["extract", ".", "--backend", backend], {
     cwd,
   });
   const extractCombined = `${extract.stdout}\n${extract.stderr}`;
@@ -264,7 +273,7 @@ export async function buildGraph(cwd: string): Promise<GraphOutcome> {
 
   return {
     kind: "failed",
-    command: `${GRAPHIFY_BIN} extract . --backend claude-cli`,
+    command: `${GRAPHIFY_BIN} extract . --backend ${backend}`,
     exitCode: extract.exitCode,
     stdout: extract.stdout,
     stderr: extract.stderr,

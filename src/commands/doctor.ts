@@ -13,12 +13,21 @@ import {
   type ClaudeStatus,
 } from "../core/claude.js";
 import { findGraphJson, hasUv, isGraphifyAvailable } from "../core/graphify.js";
+import {
+  ConfigError,
+  enabledMcpTools,
+  findConfigFile,
+  loadConfig,
+  resolveClaudeSettings,
+  resolveProjectType,
+} from "../core/config.js";
 import { logger } from "../core/logger.js";
-import { RECOMMENDED_MCP_TOOLS } from "../core/mcp.js";
+import { type McpTool } from "../core/mcp.js";
 import { AI_DEV_SETUP_END, AI_DEV_SETUP_START } from "../templates/claudeMd.js";
 import { CLAUDEIGNORE_LINES, GITIGNORE_LINES } from "../templates/ignores.js";
 import {
   ExitCode,
+  type AiDevConfig,
   type CheckResult,
   type CheckSeverity,
   type ExitCodeValue,
@@ -40,6 +49,12 @@ export interface DoctorFacts {
   gitignoreOk: boolean;
   claudeignoreOk: boolean;
   mcpConfigured: Record<string, boolean>;
+  /** MCP tools enabled by config (the ones doctor should report on). */
+  enabledMcp: McpTool[];
+  /** Path of the config file in use, or null when using defaults. */
+  configPath: string | null;
+  /** Whether Claude auth/session problems should block readiness. */
+  requireAuth: boolean;
 }
 
 function row(
@@ -68,10 +83,17 @@ export interface GatherDoctorFactsOptions {
    * so it performs the real `claude -p "ping"` readiness probe.
    */
   claudeStatus?: ClaudeStatus | (() => ClaudeStatus | Promise<ClaudeStatus>);
+  /** Loaded config used for project-type override and MCP toggles. */
+  config?: AiDevConfig;
+  /** Config file path (from the loader); resolved via discovery when omitted. */
+  configPath?: string | null;
 }
 
 /** Map a Claude state to the two readiness rows doctor should display. */
-export function claudeRows(status: ClaudeStatus): CheckResult[] {
+export function claudeRows(
+  status: ClaudeStatus,
+  requireAuth = true,
+): CheckResult[] {
   const rows: CheckResult[] = [];
 
   if (status.state === "npm-only") {
@@ -116,9 +138,14 @@ export function claudeRows(status: ClaudeStatus): CheckResult[] {
       rows.push(
         row(
           "Claude Code authentication",
-          "fail",
+          // requireAuth:false downgrades this to a warning (non-blocking),
+          // while keeping the row so the user still sees Claude isn't ready
+          // for Graphify semantic extraction.
+          requireAuth ? "fail" : "warn",
           "important",
-          "not authenticated; run `claude` or `claude login`",
+          requireAuth
+            ? "not authenticated; run `claude` or `claude login`"
+            : "not authenticated (requireAuth=false); Graphify semantic extraction unavailable until you log in",
         ),
       );
       break;
@@ -193,8 +220,16 @@ export async function gatherDoctorFacts(
     graphifyy = list.ok && /graphifyy/i.test(list.stdout);
   }
 
+  const config = options.config ?? {};
+  const enabledMcp = enabledMcpTools(config);
   const mcpConfigured: Record<string, boolean> = {};
-  for (const tool of RECOMMENDED_MCP_TOOLS) mcpConfigured[tool.key] = false;
+  for (const tool of enabledMcp) mcpConfigured[tool.key] = false;
+
+  const configPath =
+    options.configPath !== undefined
+      ? options.configPath
+      : findConfigFile(project.root);
+  const { requireAuth } = resolveClaudeSettings(config);
 
   return {
     nodeVersion: process.version,
@@ -203,13 +238,16 @@ export async function gatherDoctorFacts(
     graphifyy,
     graphifyCmd,
     claude,
-    projectType: project.type,
+    projectType: resolveProjectType(project.type, config),
     claudeMd,
     integration: integrationStart || integrationEnd,
     graphExists: graphPath !== null,
     gitignoreOk: gitignore.ok,
     claudeignoreOk: claudeignore.ok,
     mcpConfigured,
+    enabledMcp,
+    configPath,
+    requireAuth,
   };
 }
 
@@ -241,7 +279,7 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
     ),
   );
 
-  checks.push(...claudeRows(facts.claude));
+  checks.push(...claudeRows(facts.claude, facts.requireAuth));
 
   checks.push(
     row(
@@ -292,7 +330,18 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
     ),
   );
 
-  for (const tool of RECOMMENDED_MCP_TOOLS) {
+  checks.push(
+    row(
+      "ai-dev config",
+      facts.configPath ? "ok" : "warn",
+      "optional",
+      facts.configPath
+        ? path.basename(facts.configPath)
+        : "missing, using defaults",
+    ),
+  );
+
+  for (const tool of facts.enabledMcp) {
     const label = tool.name.endsWith("MCP") ? tool.name : `${tool.name} MCP`;
     const configured = facts.mcpConfigured[tool.key];
     checks.push(
@@ -327,7 +376,12 @@ export function summarizeDoctor(facts: DoctorFacts): DoctorSummary {
   const graphifyReady = facts.uv && facts.graphifyy && facts.graphifyCmd;
   const claudeInstalled =
     facts.claude.installed && facts.claude.state !== "npm-only";
-  const claudeReady = CLAUDE_READY_STATES.includes(facts.claude.state);
+  // With requireAuth:false, an authenticated-but-not-yet-logged-in state is a
+  // warning rather than a blocker. session-limited is always non-blocking.
+  const authIssueTolerated =
+    !facts.requireAuth && facts.claude.state === "not-authenticated";
+  const claudeReady =
+    CLAUDE_READY_STATES.includes(facts.claude.state) || authIssueTolerated;
 
   // Critical dependency failures first.
   if (!facts.uv || !facts.graphifyy || !facts.graphifyCmd) {
@@ -386,6 +440,7 @@ export function summarizeDoctor(facts: DoctorFacts): DoctorSummary {
     !facts.gitignoreOk ||
     !facts.claudeignoreOk ||
     facts.claude.state === "session-limited" ||
+    authIssueTolerated ||
     Object.values(facts.mcpConfigured).some((v) => !v) ||
     !facts.pnpm;
 
@@ -410,7 +465,26 @@ export function summarizeDoctor(facts: DoctorFacts): DoctorSummary {
  */
 export async function doctorCommand(cwd = process.cwd()): Promise<ExitCodeValue> {
   logger.heading("ai-dev doctor");
-  const facts = await gatherDoctorFacts(cwd);
+
+  let config: AiDevConfig = {};
+  let loadedConfigPath: string | null = null;
+  try {
+    const loaded = await loadConfig(cwd);
+    config = loaded.config;
+    loadedConfigPath = loaded.filePath;
+    for (const w of loaded.warnings) logger.warn(w);
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      logger.error(`${err.message} (${err.filePath})`);
+      return ExitCode.SetupFailed;
+    }
+    throw err;
+  }
+
+  const facts = await gatherDoctorFacts(cwd, {
+    config,
+    configPath: loadedConfigPath,
+  });
   const checks = factsToChecks(facts);
 
   for (const c of checks) logger.check(c.status, c.label, c.detail);

@@ -14,11 +14,12 @@ import {
 } from "./commands/config.js";
 import { wizardCommand } from "./commands/wizard.js";
 import { providerDoctorCommand, providerListCommand } from "./commands/providers.js";
+import { contextCommand } from "./commands/context.js";
 import { ConfigError, loadConfig, resolveInitOptions } from "./core/config.js";
 import { logger } from "./core/logger.js";
 import { ExitCode, type InitOptions, type ProjectType } from "./types.js";
 
-const VERSION = "2.0.4";
+const VERSION = "2.1.0";
 
 function finish(code: number): never {
   process.exit(code);
@@ -98,6 +99,15 @@ async function main(): Promise<void> {
     .option("--force", "Continue even if this folder is not a project root.")
     .action(async (opts: { yes?: boolean; force?: boolean }) => {
       finish(await wizardCommand(process.cwd(), opts));
+    });
+
+
+  // context
+  program
+    .command("context")
+    .description("Preview the project-aware guidance block generated for AI agents.")
+    .action(async () => {
+      finish(await contextCommand(process.cwd()));
     });
 
   // update

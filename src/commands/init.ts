@@ -48,7 +48,13 @@ import {
   CLAUDE_MD_SETUP_BLOCK,
 } from "../templates/claudeMd.js";
 import { AI_DEV_AGENTS_END, AI_DEV_AGENTS_START, AGENTS_MD_BLOCK, AGENTS_MD_HEADER } from "../templates/agentsMd.js";
-import { COPILOT_INSTRUCTIONS, CURSOR_RULES, OPENCODE_JSONC } from "../templates/providerArtifacts.js";
+import { buildCopilotInstructions, buildCursorRules, OPENCODE_JSONC } from "../templates/providerArtifacts.js";
+import {
+  AI_DEV_PROJECT_CONTEXT_END,
+  AI_DEV_PROJECT_CONTEXT_START,
+  detectProjectContext,
+  renderProjectContextBlock,
+} from "../core/projectContext.js";
 import {
   CLAUDEIGNORE_LINES,
   GITIGNORE_LINES,
@@ -92,6 +98,9 @@ export async function initCommand(
     logger.detail(`(detected ${project.type}, overridden by config/flag)`);
   }
 
+  const projectContext = await detectProjectContext(project.root, effectiveType);
+  const projectContextBlock = renderProjectContextBlock(projectContext);
+
   if (!project.isProjectRoot && !options.force) {
     logger.error(
       "This folder does not look like a project root (no package.json, .git, etc.).",
@@ -122,19 +131,34 @@ export async function initCommand(
         AI_DEV_SETUP_END,
       );
       describeChange(claudeChange, "CLAUDE.md");
+      await ensureBlock(
+        claudeMd,
+        AI_DEV_PROJECT_CONTEXT_START,
+        projectContextBlock,
+        "",
+        AI_DEV_PROJECT_CONTEXT_END,
+      );
     } else {
       logger.detail(artifacts.claudeMd ? "Skipping CLAUDE.md (claude.updateClaudeMd = false)." : "Skipping CLAUDE.md (Claude provider/artifact disabled).");
     }
 
     if (artifacts.agentsMd) {
+      const agentsPath = path.join(project.root, "AGENTS.md");
       const agentsChange = await ensureBlock(
-        path.join(project.root, "AGENTS.md"),
+        agentsPath,
         AI_DEV_AGENTS_START,
         AGENTS_MD_BLOCK,
         AGENTS_MD_HEADER,
         AI_DEV_AGENTS_END,
       );
       describeChange(agentsChange, "AGENTS.md");
+      await ensureBlock(
+        agentsPath,
+        AI_DEV_PROJECT_CONTEXT_START,
+        projectContextBlock,
+        "",
+        AI_DEV_PROJECT_CONTEXT_END,
+      );
     }
 
     if (artifacts.opencodeConfig) {
@@ -151,7 +175,7 @@ export async function initCommand(
       const cursorRulePath = path.join(project.root, ".cursor", "rules", "ai-dev.mdc");
       if (!(await fs.pathExists(cursorRulePath))) {
         await fs.ensureDir(path.dirname(cursorRulePath));
-        await fs.writeFile(cursorRulePath, CURSOR_RULES, "utf8");
+        await fs.writeFile(cursorRulePath, buildCursorRules(projectContextBlock), "utf8");
         logger.success("Created .cursor/rules/ai-dev.mdc");
       } else {
         logger.detail(".cursor/rules/ai-dev.mdc already configured");
@@ -162,7 +186,7 @@ export async function initCommand(
       const copilotPath = path.join(project.root, ".github", "copilot-instructions.md");
       if (!(await fs.pathExists(copilotPath))) {
         await fs.ensureDir(path.dirname(copilotPath));
-        await fs.writeFile(copilotPath, COPILOT_INSTRUCTIONS, "utf8");
+        await fs.writeFile(copilotPath, buildCopilotInstructions(projectContextBlock), "utf8");
         logger.success("Created .github/copilot-instructions.md");
       } else {
         logger.detail(".github/copilot-instructions.md already configured");

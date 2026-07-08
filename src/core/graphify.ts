@@ -105,6 +105,17 @@ export async function findGraphJson(cwd: string, target = "."): Promise<string |
   return null;
 }
 
+
+/** Return the first existing graph.json across root and common code-only targets. */
+export async function findAnyGraphJson(cwd: string): Promise<string | null> {
+  const targets = [".", "src", "app", "pages", "components", "lib", "server", "api"];
+  for (const target of targets) {
+    const found = await findGraphJson(cwd, target);
+    if (found) return found;
+  }
+  return null;
+}
+
 /** Candidate locations for the assistant extraction-instructions file. */
 export function instructionCandidates(cwd: string): string[] {
   return [

@@ -12,7 +12,7 @@ import {
   type ClaudeState,
   type ClaudeStatus,
 } from "../core/claude.js";
-import { findGraphJson, hasUv, isGraphifyAvailable } from "../core/graphify.js";
+import { findAnyGraphJson, hasUv, isGraphifyAvailable } from "../core/graphify.js";
 import {
   ConfigError,
   enabledMcpTools,
@@ -55,6 +55,7 @@ export interface DoctorFacts {
   claudeMd: boolean;
   integration: boolean;
   graphExists: boolean;
+  graphPath: string | null;
   gitignoreOk: boolean;
   claudeignoreOk: boolean;
   graphifyignoreOk: boolean;
@@ -242,7 +243,7 @@ export async function gatherDoctorFacts(
     fs.pathExists(claudeMdPath),
     fileContainsMarker(claudeMdPath, AI_DEV_SETUP_START),
     fileContainsMarker(claudeMdPath, AI_DEV_SETUP_END),
-    findGraphJson(project.root),
+    findAnyGraphJson(project.root),
     ignoreFileContainsAll(
       path.join(project.root, ".gitignore"),
       GITIGNORE_LINES,
@@ -304,6 +305,7 @@ export async function gatherDoctorFacts(
     claudeMd,
     integration: integrationStart || integrationEnd,
     graphExists: graphPath !== null,
+    graphPath,
     gitignoreOk: gitignore.ok,
     claudeignoreOk: claudeignore.ok,
     graphifyignoreOk: graphifyignore.ok,
@@ -411,7 +413,9 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
       facts.graphExists || !facts.graphBuildEnabled ? "ok" : "warn",
       facts.graphBuildEnabled ? "important" : "optional",
       facts.graphExists
-        ? undefined
+        ? facts.graphBuildEnabled
+          ? undefined
+          : "built; skipped by config for init"
         : facts.graphBuildEnabled
           ? "not built"
           : "skipped by config",

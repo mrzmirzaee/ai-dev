@@ -39,6 +39,7 @@ function healthyFacts(overrides: Partial<DoctorFacts> = {}): DoctorFacts {
     claudeMd: true,
     integration: true,
     graphExists: true,
+    graphPath: "/proj/graphify-out/graph.json",
     gitignoreOk: true,
     claudeignoreOk: true,
     graphifyignoreOk: true,

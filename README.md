@@ -1,6 +1,6 @@
 # ai-dev
 
-A cross-platform CLI that bootstraps multi-agent AI development tooling for any project — Claude Code, OpenCode, Codex-compatible agents, Cursor, GitHub Copilot, and generic AI coding agents. It wires up Graphify (a codebase knowledge graph), prepares shared agent instruction artifacts such as `CLAUDE.md`, `AGENTS.md`, `opencode.jsonc`, Cursor rules, Copilot instructions, ignore files, and recommended MCP tools, so you get a repeatable setup across every repository instead of configuring each one by hand.
+A cross-platform CLI that bootstraps multi-agent AI development tooling for any project — Claude Code, OpenCode, Codex-compatible agents, Cursor, GitHub Copilot, and generic AI coding agents. It wires up Graphify (a codebase knowledge graph), prepares shared agent instruction artifacts such as `CLAUDE.md`, `AGENTS.md`, `opencode.jsonc`, Cursor rules, Copilot instructions, ignore files, and recommended MCP tools, and now generates project-aware guidance from your actual stack, scripts, and folder layout.
 
 ## What it does
 
@@ -13,6 +13,7 @@ Running `ai-dev init` or the interactive `ai-dev wizard` in a project will:
 - Detect Claude Code and OpenCode when those providers are enabled, and print install instructions if missing.
 - Run `graphify claude install` when Claude artifacts are enabled.
 - Create or update `CLAUDE.md`, `AGENTS.md`, `opencode.jsonc`, `.cursor/rules/ai-dev.mdc`, `.github/copilot-instructions.md`, `.claudeignore`, `.gitignore`, and `.graphifyignore` as configured — **without overwriting your content** where managed blocks are used.
+- Add project-aware guidance to AI instruction files, including detected stack, important folders, architecture notes, and verification commands.
 - Optionally build the Graphify graph, handling the semantic-extraction fallback.
 - Surface, verify, and install recommended MCP tools (Context7, Serena, Playwright MCP).
 
@@ -107,6 +108,17 @@ Exit codes: `0` when ready (possibly with warnings), `1` when Claude is installe
 
 `ai-dev doctor --fix` applies safe, idempotent project fixes by running the same file/setup path as `init` with graph build skipped. It is useful when `doctor` reports missing `CLAUDE.md`, `.gitignore`, `.claudeignore`, `.graphifyignore`, or Graphify integration.
 
+
+
+### `ai-dev context`
+
+Previews the project-aware guidance block that `ai-dev` writes into `AGENTS.md`, `CLAUDE.md`, Cursor rules, and Copilot instructions. This is useful before sharing the generated instructions with your team.
+
+```bash
+ai-dev context
+```
+
+The context is derived from `package.json`, detected project type, dependencies, common source folders, and available scripts. For example, a Next.js project with `src/app`, TanStack Query, Zustand, Tailwind, Leaflet, and Sentry will get targeted notes about App Router routes, state/cache boundaries, static `public/` assets, SSR/browser-only map code, and verification commands.
 
 ### `ai-dev provider list` / `ai-dev provider doctor`
 
@@ -392,3 +404,12 @@ ai-dev graph rebuild --backend gemini
 # Local Ollama backend
 ai-dev graph rebuild --backend ollama
 ```
+
+
+## v2.1.0 release notes
+
+- Adds project-aware guidance blocks for AI instruction artifacts.
+- Detects stack hints from dependencies such as Next.js, React, TypeScript, Tailwind, TanStack Query, Zustand, Axios, React Hook Form, Yup/Zod, Sentry, Leaflet, Chart.js, Storybook, NestJS, Prisma, TypeORM, and common Node tooling.
+- Detects important folders such as `src/`, `app/`, `pages/`, `components/`, `lib/`, `hooks/`, `stores/`, `services/`, `public/`, and test/storybook folders.
+- Adds `ai-dev context` to preview the generated project-aware guidance before committing artifacts.
+- Doctor now recognizes code-only graphs under common targets such as `src/graphify-out/graph.json`, and reports a built graph even when init graph builds are skipped by config.

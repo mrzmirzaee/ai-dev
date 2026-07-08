@@ -56,6 +56,30 @@ export function getMcpTool(key: string): McpTool | undefined {
   return RECOMMENDED_MCP_TOOLS.find((tool) => tool.key === key);
 }
 
+export function parseConfiguredMcpServers(output: string): Set<string> {
+  const configured = new Set<string>();
+  const normalizedOutput = output.toLowerCase();
+
+  for (const tool of RECOMMENDED_MCP_TOOLS) {
+    const key = tool.key.toLowerCase();
+    const keyLinePattern = new RegExp(`(^|\\n)\\s*${key}\\s*:`, "i");
+    const wordPattern = new RegExp(`(^|[^a-z0-9])${key}([^a-z0-9]|$)`, "i");
+
+    if (
+      keyLinePattern.test(output) ||
+      wordPattern.test(output) ||
+      normalizedOutput.includes(tool.install.toLowerCase().replace("claude mcp add ", "")) ||
+      (key === "playwright" && normalizedOutput.includes("@playwright/mcp")) ||
+      (key === "context7" && normalizedOutput.includes("@upstash/context7-mcp")) ||
+      (key === "serena" && normalizedOutput.includes("serena start-mcp-server"))
+    ) {
+      configured.add(tool.key);
+    }
+  }
+
+  return configured;
+}
+
 export async function listConfiguredMcpServers(): Promise<{
   ok: boolean;
   configured: Set<string>;
@@ -64,14 +88,7 @@ export async function listConfiguredMcpServers(): Promise<{
 }> {
   const res = await run("claude", ["mcp", "list"]);
   const output = `${res.stdout}\n${res.stderr}`;
-  const configured = new Set<string>();
-  for (const tool of RECOMMENDED_MCP_TOOLS) {
-    const pattern = new RegExp(`(^|\\s|[-_*])${tool.key}($|\\s|[-_*])`, "i");
-    if (pattern.test(output) || output.toLowerCase().includes(tool.name.toLowerCase())) {
-      configured.add(tool.key);
-    }
-  }
-  return { ok: res.ok, configured, stdout: res.stdout, stderr: res.stderr };
+  return { ok: res.ok, configured: parseConfiguredMcpServers(output), stdout: res.stdout, stderr: res.stderr };
 }
 
 export async function isMcpToolConfigured(key: McpKey): Promise<boolean> {

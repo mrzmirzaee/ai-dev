@@ -115,7 +115,7 @@ export async function mcpInstallCommand(
   logger.detail(`Running: ${tool.install}`);
   const result = await installMcpTool(tool);
   if (result.ok) {
-    logger.success(`${tool.name} MCP installed.`);
+    logger.success(`${tool.name}${tool.name.endsWith("MCP") ? "" : " MCP"} installed.`);
     logger.next("Run `ai-dev mcp doctor` to verify MCP configuration.");
     return ExitCode.Success;
   }

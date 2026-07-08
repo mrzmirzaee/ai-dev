@@ -3,6 +3,8 @@ import { z } from "zod";
 /**
  * Supported / detectable project types.
  */
+export type AiProvider = "claude" | "opencode" | "codex" | "cursor" | "copilot" | "generic";
+
 export type ProjectType =
   | "Next.js"
   | "NestJS"
@@ -61,6 +63,8 @@ export interface GraphRebuildOptions {
   semantic?: string;
   /** Backend for `graphify extract` (resolved: flag > config > default). */
   backend?: string;
+  /** Build only the detected code root (for example src/) to avoid docs/assets. */
+  codeOnly?: boolean;
 }
 
 /**
@@ -74,6 +78,24 @@ export interface InitFlags {
   force?: boolean;
   projectType?: ProjectType;
 }
+
+
+const AiProviderEnum = z.enum([
+  "claude",
+  "opencode",
+  "codex",
+  "cursor",
+  "copilot",
+  "generic",
+]);
+
+const ArtifactConfigSchema = z.object({
+  claudeMd: z.boolean().optional(),
+  agentsMd: z.boolean().optional(),
+  opencodeConfig: z.boolean().optional(),
+  cursorRules: z.boolean().optional(),
+  copilotInstructions: z.boolean().optional(),
+}).optional();
 
 /**
  * Zod schema for the optional `ai-dev.config.json` (or `.ai-dev.json`) config
@@ -98,6 +120,13 @@ export const AiDevConfigSchema = z.object({
     .optional(),
   skipGraph: z.boolean().optional(),
   skipMcp: z.boolean().optional(),
+  ai: z
+    .object({
+      providers: z.array(AiProviderEnum).min(1).optional(),
+      primary: AiProviderEnum.optional(),
+    })
+    .optional(),
+  artifacts: ArtifactConfigSchema,
   graph: z
     .object({
       // Backend used for `graphify extract`. Kept as a permissive string so

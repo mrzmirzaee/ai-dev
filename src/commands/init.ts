@@ -1,12 +1,17 @@
 import path from "node:path";
 import process from "node:process";
 import ora from "ora";
+import fs from "fs-extra";
 import { detectProject } from "../core/detect.js";
 import {
   enabledMcpTools,
+  resolveArtifacts,
+  resolveAiProviders,
   resolveBackend,
   resolveClaudeSettings,
   resolveProjectType,
+  shouldCheckClaude,
+  graphBackendRequiresClaude,
 } from "../core/config.js";
 import {
   ensureBlock,
@@ -42,6 +47,8 @@ import {
   CLAUDE_MD_MCP_BLOCK,
   CLAUDE_MD_SETUP_BLOCK,
 } from "../templates/claudeMd.js";
+import { AI_DEV_AGENTS_END, AI_DEV_AGENTS_START, AGENTS_MD_BLOCK, AGENTS_MD_HEADER } from "../templates/agentsMd.js";
+import { COPILOT_INSTRUCTIONS, CURSOR_RULES, OPENCODE_JSONC } from "../templates/providerArtifacts.js";
 import {
   CLAUDEIGNORE_LINES,
   GITIGNORE_LINES,
@@ -102,8 +109,10 @@ export async function initCommand(
   // --- File setup (always safe, idempotent) ---------------------------------
   logger.heading("Configuring project files");
   const claudeSettings = resolveClaudeSettings(config);
+  const artifacts = resolveArtifacts(config);
+  const writeClaudeArtifacts = claudeSettings.updateClaudeMd && artifacts.claudeMd;
   try {
-    if (claudeSettings.updateClaudeMd) {
+    if (writeClaudeArtifacts) {
       const claudeMd = path.join(project.root, "CLAUDE.md");
       const claudeChange = await ensureBlock(
         claudeMd,
@@ -114,7 +123,50 @@ export async function initCommand(
       );
       describeChange(claudeChange, "CLAUDE.md");
     } else {
-      logger.detail("Skipping CLAUDE.md (claude.updateClaudeMd = false).");
+      logger.detail(artifacts.claudeMd ? "Skipping CLAUDE.md (claude.updateClaudeMd = false)." : "Skipping CLAUDE.md (Claude provider/artifact disabled).");
+    }
+
+    if (artifacts.agentsMd) {
+      const agentsChange = await ensureBlock(
+        path.join(project.root, "AGENTS.md"),
+        AI_DEV_AGENTS_START,
+        AGENTS_MD_BLOCK,
+        AGENTS_MD_HEADER,
+        AI_DEV_AGENTS_END,
+      );
+      describeChange(agentsChange, "AGENTS.md");
+    }
+
+    if (artifacts.opencodeConfig) {
+      const opencodePath = path.join(project.root, "opencode.jsonc");
+      if (!(await fs.pathExists(opencodePath))) {
+        await fs.writeFile(opencodePath, OPENCODE_JSONC, "utf8");
+        logger.success("Created opencode.jsonc");
+      } else {
+        logger.detail("opencode.jsonc already configured");
+      }
+    }
+
+    if (artifacts.cursorRules) {
+      const cursorRulePath = path.join(project.root, ".cursor", "rules", "ai-dev.mdc");
+      if (!(await fs.pathExists(cursorRulePath))) {
+        await fs.ensureDir(path.dirname(cursorRulePath));
+        await fs.writeFile(cursorRulePath, CURSOR_RULES, "utf8");
+        logger.success("Created .cursor/rules/ai-dev.mdc");
+      } else {
+        logger.detail(".cursor/rules/ai-dev.mdc already configured");
+      }
+    }
+
+    if (artifacts.copilotInstructions) {
+      const copilotPath = path.join(project.root, ".github", "copilot-instructions.md");
+      if (!(await fs.pathExists(copilotPath))) {
+        await fs.ensureDir(path.dirname(copilotPath));
+        await fs.writeFile(copilotPath, COPILOT_INSTRUCTIONS, "utf8");
+        logger.success("Created .github/copilot-instructions.md");
+      } else {
+        logger.detail(".github/copilot-instructions.md already configured");
+      }
     }
 
     const gitignore = await ensureIgnoreLines(
@@ -144,12 +196,18 @@ export async function initCommand(
   }
 
   // --- Claude Code ----------------------------------------------------------
-  logger.heading("Claude Code");
-  const claudeAvailable = await hasClaudeCode();
-  if (claudeAvailable) {
-    logger.success("Claude Code CLI detected.");
+  const needsClaude = shouldCheckClaude(config);
+  if (needsClaude) {
+    logger.heading("Claude Code");
+    const claudeAvailable = await hasClaudeCode();
+    if (claudeAvailable) {
+      logger.success("Claude Code CLI detected.");
+    } else {
+      printClaudeInstallInstructions();
+    }
   } else {
-    printClaudeInstallInstructions();
+    logger.heading("Claude Code");
+    logger.detail("Skipping Claude Code check (Claude provider/backend disabled).");
   }
 
   // --- uv + graphify --------------------------------------------------------
@@ -178,13 +236,13 @@ export async function initCommand(
       logger.success("graphify command is available.");
       // Integrate with Claude Code (best-effort). This rewrites CLAUDE.md, so
       // it is skipped when the user opted out of CLAUDE.md updates.
-      if (claudeSettings.updateClaudeMd) {
+      if (writeClaudeArtifacts) {
         const integrated = await runGraphifyClaudeInstall(project.root);
         if (integrated) logger.success("Ran `graphify claude install`.");
         else logger.warn("`graphify claude install` did not complete cleanly.");
       } else {
         logger.detail(
-          "Skipping `graphify claude install` (claude.updateClaudeMd = false).",
+          artifacts.claudeMd ? "Skipping `graphify claude install` (claude.updateClaudeMd = false)." : "Skipping `graphify claude install` (Claude provider/artifact disabled).",
         );
       }
     } else {
@@ -196,14 +254,28 @@ export async function initCommand(
   }
 
   // --- Graph build ----------------------------------------------------------
+  const graphBackend = resolveBackend(undefined, config);
+  const graphBackendNeedsClaude = graphBackendRequiresClaude(config);
   if (options.skipGraph) {
     logger.heading("Graph");
     logger.detail("Skipping graph build (--skip-graph).");
+  } else if (graphBackend === "none") {
+    logger.heading("Graph");
+    logger.detail("Skipping graph build (graph.backend = none).")
+    logger.next("Run `ai-dev graph rebuild --code-only` when you want a code-only graph.");
+  } else if (!needsClaude && graphBackendNeedsClaude) {
+    logger.heading("Graph");
+    logger.detail(
+      "Skipping graph build (graph backend is claude-cli, but Claude provider is disabled).",
+    );
+    logger.next(
+      "Set graph.backend to gemini/ollama/openai/anthropic, or run `ai-dev graph rebuild --code-only` when ready.",
+    );
   } else if (uvAvailable && (await isGraphifyAvailable())) {
     logger.heading("Building Graphify graph");
     const spinner = ora({ text: "Building graph...", stream: process.stdout }).start();
     try {
-      const outcome = await buildGraph(project.root, { backend: resolveBackend(undefined, config) });
+      const outcome = await buildGraph(project.root, { backend: graphBackend });
       if (outcome.kind === "built") spinner.succeed("Graph built.");
       else if (outcome.kind === "instructions")
         spinner.info("Semantic extraction required.");
@@ -236,9 +308,9 @@ export async function initCommand(
     }
     // Add optional MCP block to CLAUDE.md (idempotent) — unless CLAUDE.md
     // updates are disabled.
-    if (!claudeSettings.updateClaudeMd) {
+    if (!writeClaudeArtifacts) {
       logger.detail(
-        "Skipping MCP guidance block in CLAUDE.md (claude.updateClaudeMd = false).",
+        artifacts.claudeMd ? "Skipping MCP guidance block in CLAUDE.md (claude.updateClaudeMd = false)." : "Skipping MCP guidance block in CLAUDE.md (Claude provider/artifact disabled).",
       );
     } else {
       try {
@@ -271,7 +343,7 @@ export async function initCommand(
     return ExitCode.MissingDependency;
   }
   logger.success("Project is set up for AI development.");
-  printInitNextSteps(options.skipGraph);
+  printInitNextSteps(options.skipGraph, config);
   return ExitCode.Success;
 }
 
@@ -279,30 +351,49 @@ export async function initCommand(
  * Build the "next recommended commands" lines shown after a successful init.
  * Returned as an array so it can be asserted in tests.
  */
-export function initNextStepsLines(skipGraph: boolean): string[] {
+export function initNextStepsLines(skipGraph: boolean, config: AiDevConfig = {}): string[] {
+  const providerCommands: Record<string, string> = {
+    claude: "claude",
+    opencode: "opencode",
+    cursor: "cursor",
+    copilot: "VS Code / Codespaces",
+    codex: "your Codex-compatible agent",
+    generic: "your AI coding agent",
+  };
+  const activeProviders = resolveAiProviders(config).providers;
+  const providers = activeProviders.filter((key) => key in providerCommands);
+  const tools = providers.length
+    ? [...new Set(providers.map((key) => providerCommands[key]))].join(" / ")
+    : "your AI coding tool";
+
   const lines = [
     "",
     "Next recommended commands:",
     "1. Check setup:",
     "   ai-dev doctor",
-    "",
-    "2. Build the graph:",
-    "   ai-dev graph rebuild",
-    "",
-    "3. Open Claude Code:",
-    "   claude",
   ];
+
+  if (!skipGraph) {
+    lines.push("", "2. Rebuild the graph when needed:", "   ai-dev graph rebuild");
+  }
+
+  lines.push(
+    "",
+    `${skipGraph ? "2" : "3"}. Open your AI coding tool:`,
+    `   ${tools}`,
+  );
+
   if (skipGraph) {
     lines.push(
       "",
       "Graph build was skipped.",
       "Run this when ready:",
-      "ai-dev graph rebuild",
+      "ai-dev graph rebuild --code-only",
     );
   }
   return lines;
 }
 
-function printInitNextSteps(skipGraph: boolean): void {
-  for (const line of initNextStepsLines(skipGraph)) logger.info(line);
+function printInitNextSteps(skipGraph: boolean, config: AiDevConfig): void {
+  for (const line of initNextStepsLines(skipGraph, config)) logger.info(line);
 }

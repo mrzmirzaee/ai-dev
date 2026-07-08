@@ -5,6 +5,8 @@ import path from "node:path";
 import {
   parseAssetSummary,
   needsSemanticExtraction,
+  findGraphJson,
+  graphJsonCandidates,
 } from "../src/core/graphify.js";
 import { ExitCode } from "../src/types.js";
 
@@ -53,6 +55,25 @@ describe("parseAssetSummary", () => {
     expect(parseAssetSummary("nothing here")).toBeUndefined();
   });
 });
+
+
+
+describe("graphJsonCandidates", () => {
+  it("includes target-level graph outputs for code-only builds", () => {
+    const candidates = graphJsonCandidates("/repo", "src");
+    expect(candidates).toContain(path.join("/repo", "graphify-out", "graph.json"));
+    expect(candidates).toContain(path.join("/repo", "src", "graphify-out", "graph.json"));
+    expect(candidates).toContain(path.join("/repo", "src", ".graphify", "graph.json"));
+  });
+
+  it("finds graph.json under a code-only target", async () => {
+    await fs.ensureDir(path.join(tmp, "src", "graphify-out"));
+    const graphPath = path.join(tmp, "src", "graphify-out", "graph.json");
+    await fs.writeJson(graphPath, { ok: true });
+    await expect(findGraphJson(tmp, "src")).resolves.toBe(graphPath);
+  });
+});
+
 
 describe("needsSemanticExtraction", () => {
   it("is true for 'no LLM API key found'", () => {
@@ -184,7 +205,7 @@ describe("graphRebuildCommand backend resolution (flag > config > default)", () 
 
   it("passes the explicit --backend option through", async () => {
     await graphRebuildCommand({ backend: "openai" }, tmp);
-    expect(graphify.buildGraph).toHaveBeenCalledWith(tmp, { backend: "openai" });
+    expect(graphify.buildGraph).toHaveBeenCalledWith(tmp, { backend: "openai", target: "." });
   });
 
   it("uses config graph.backend when no flag is given", async () => {
@@ -192,15 +213,26 @@ describe("graphRebuildCommand backend resolution (flag > config > default)", () 
       graph: { backend: "gemini" },
     });
     await graphRebuildCommand({}, tmp);
-    expect(graphify.buildGraph).toHaveBeenCalledWith(tmp, { backend: "gemini" });
+    expect(graphify.buildGraph).toHaveBeenCalledWith(tmp, { backend: "gemini", target: "." });
   });
 
   it("defaults to claude-cli when neither flag nor config is set", async () => {
     await graphRebuildCommand({}, tmp);
     expect(graphify.buildGraph).toHaveBeenCalledWith(tmp, {
       backend: "claude-cli",
+      target: ".",
     });
   });
+
+  it("uses the detected code root for --code-only", async () => {
+    await fs.ensureDir(path.join(tmp, "src"));
+    await graphRebuildCommand({ backend: "gemini", codeOnly: true }, tmp);
+    expect(graphify.buildGraph).toHaveBeenCalledWith(tmp, {
+      backend: "gemini",
+      target: "src",
+    });
+  });
+
 
   it("fails clearly on an invalid config file", async () => {
     await fs.writeFile(path.join(tmp, "ai-dev.config.json"), "{ bad json");

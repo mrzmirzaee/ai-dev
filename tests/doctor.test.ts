@@ -42,9 +42,19 @@ function healthyFacts(overrides: Partial<DoctorFacts> = {}): DoctorFacts {
     gitignoreOk: true,
     claudeignoreOk: true,
     graphifyignoreOk: true,
+    agentsMd: false,
+    opencodeConfig: false,
+    cursorRules: false,
+    copilotInstructions: false,
+    artifacts: { claudeMd: true, agentsMd: false, opencodeConfig: false, cursorRules: false, copilotInstructions: false },
+    providers: [{ key: "claude", name: "Claude Code", command: "claude", artifactFiles: ["CLAUDE.md"], installHint: "", available: true, detail: "installed" }],
     mcpConfigured: { context7: true, serena: true, playwright: true },
     enabledMcp: RECOMMENDED_MCP_TOOLS,
     configPath: "/proj/ai-dev.config.json",
+    needsClaude: true,
+    graphBackend: "claude-cli",
+    graphBuildEnabled: true,
+    graphBackendNeedsClaude: true,
     requireAuth: true,
     updateClaudeMd: true,
     ...overrides,
@@ -189,6 +199,20 @@ describe("summarizeDoctor", () => {
     expect(s.state).toBe("ready-with-warnings");
     expect(s.exitCode).toBe(ExitCode.Success);
   });
+  it("does not render Claude session warnings when Claude provider is disabled", () => {
+    const checks = factsToChecks(
+      healthyFacts({
+        needsClaude: false,
+        claude: readyClaude({ state: "session-limited", resetTime: "3:10pm" }),
+        providers: [{ key: "opencode", name: "OpenCode", command: "opencode", artifactFiles: ["AGENTS.md", "opencode.jsonc"], installHint: "", available: true, detail: "1.17.15" }],
+        artifacts: { claudeMd: false, agentsMd: true, opencodeConfig: true, cursorRules: false, copilotInstructions: false },
+        updateClaudeMd: false,
+      }),
+    );
+    expect(checks.find((c) => c.label === "Claude Code")?.detail).toContain("disabled by provider config");
+    expect(checks.some((c) => c.label === "Claude Code session limit")).toBe(false);
+  });
+
 });
 
 describe("claudeRows", () => {

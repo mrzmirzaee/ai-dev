@@ -1,13 +1,24 @@
 {
   "projectType": "Next.js",
-  "skipGraph": false,
+  "skipGraph": true,
   "skipMcp": false,
+  "ai": {
+    "providers": ["opencode"],
+    "primary": "opencode"
+  },
+  "artifacts": {
+    "claudeMd": false,
+    "agentsMd": true,
+    "opencodeConfig": true,
+    "cursorRules": false,
+    "copilotInstructions": false
+  },
   "graph": {
-    "backend": "claude-cli"
+    "backend": "none"
   },
   "claude": {
-    "updateClaudeMd": true,
-    "requireAuth": true
+    "updateClaudeMd": false,
+    "requireAuth": false
   },
   "mcp": {
     "context7": true,

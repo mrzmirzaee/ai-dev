@@ -1,6 +1,6 @@
 # ai-dev
 
-A cross-platform CLI that bootstraps AI development tooling for any project — especially [Claude Code](https://www.anthropic.com/claude-code) projects. It wires up [Graphify](https://pypi.org/project/graphifyy/) (a codebase knowledge graph), prepares `CLAUDE.md` / ignore files, and surfaces recommended MCP tools, so you get a repeatable setup across every repository instead of configuring each one by hand.
+A cross-platform CLI that bootstraps multi-agent AI development tooling for any project — Claude Code, OpenCode, Codex-compatible agents, Cursor, GitHub Copilot, and generic AI coding agents. It wires up Graphify (a codebase knowledge graph), prepares shared agent instruction artifacts such as `CLAUDE.md`, `AGENTS.md`, `opencode.jsonc`, Cursor rules, Copilot instructions, ignore files, and recommended MCP tools, so you get a repeatable setup across every repository instead of configuring each one by hand.
 
 ## What it does
 
@@ -9,9 +9,10 @@ Running `ai-dev init` or the interactive `ai-dev wizard` in a project will:
 - Detect the project root and project type (React, Vite, Next.js, NestJS, Node.js, Python, PHP/Laravel, or Unknown).
 - Check for `uv`, and install or upgrade the `graphifyy` package (executable: `graphify`).
 - Locate `graphify` even when it is installed outside your `PATH` (common on Windows).
-- Detect Claude Code (`claude` / `claude.cmd`) and print install instructions if missing.
-- Run `graphify claude install` to integrate Graphify with Claude Code.
-- Create or update `CLAUDE.md`, `.claudeignore`, `.gitignore`, and `.graphifyignore` — **without overwriting your content** (managed blocks and lines are added only when missing).
+- Let you choose AI coding providers: Claude Code, OpenCode, Codex / `AGENTS.md`, Cursor, GitHub Copilot, and Generic.
+- Detect Claude Code and OpenCode when those providers are enabled, and print install instructions if missing.
+- Run `graphify claude install` when Claude artifacts are enabled.
+- Create or update `CLAUDE.md`, `AGENTS.md`, `opencode.jsonc`, `.cursor/rules/ai-dev.mdc`, `.github/copilot-instructions.md`, `.claudeignore`, `.gitignore`, and `.graphifyignore` as configured — **without overwriting your content** where managed blocks are used.
 - Optionally build the Graphify graph, handling the semantic-extraction fallback.
 - Surface, verify, and install recommended MCP tools (Context7, Serena, Playwright MCP).
 
@@ -71,7 +72,7 @@ Flags:
 
 ### `ai-dev wizard`
 
-Runs an interactive setup flow that detects the project type, writes `ai-dev.config.json`, lets you choose Graphify/Claude/MCP defaults, and can run `ai-dev init` immediately afterward.
+Runs an interactive setup flow that detects the project type, writes `ai-dev.config.json`, lets you choose AI providers, Graphify, Claude, artifact, and MCP defaults, and can run `ai-dev init` immediately afterward.
 
 ```bash
 ai-dev wizard
@@ -105,6 +106,25 @@ The final line is a summary state rather than a blanket "healthy":
 Exit codes: `0` when ready (possibly with warnings), `1` when Claude is installed but not usable, `2` when a critical dependency is missing.
 
 `ai-dev doctor --fix` applies safe, idempotent project fixes by running the same file/setup path as `init` with graph build skipped. It is useful when `doctor` reports missing `CLAUDE.md`, `.gitignore`, `.claudeignore`, `.graphifyignore`, or Graphify integration.
+
+
+### `ai-dev provider list` / `ai-dev provider doctor`
+
+Lists and checks configured AI coding providers. This is the v2 provider layer used by the wizard and doctor.
+
+```bash
+ai-dev provider list
+ai-dev provider doctor
+```
+
+Supported providers:
+
+- `claude` — `CLAUDE.md` and Graphify Claude hooks.
+- `opencode` — `AGENTS.md` and `opencode.jsonc`.
+- `codex` — `AGENTS.md`.
+- `cursor` — `.cursor/rules/ai-dev.mdc`.
+- `copilot` — `.github/copilot-instructions.md`.
+- `generic` — `AGENTS.md`.
 
 ### `ai-dev update`
 
@@ -301,3 +321,74 @@ pnpm lint                   # type-check
 ## License
 
 MIT — see [LICENSE](./LICENSE).
+
+
+## v2 provider config
+
+`ai-dev.config.json` can now describe multiple AI coding providers and the artifacts to generate:
+
+```json
+{
+  "ai": {
+    "providers": ["claude", "opencode"],
+    "primary": "claude"
+  },
+  "artifacts": {
+    "claudeMd": true,
+    "agentsMd": true,
+    "opencodeConfig": true,
+    "cursorRules": false,
+    "copilotInstructions": false
+  }
+}
+```
+
+Existing v1 configs continue to work. When no provider config is present, `ai-dev` defaults to the v1 Claude-first behavior.
+
+
+## v2.0.4 patch notes
+
+- AI coding providers are now treated separately from Graphify semantic extraction backends. OpenCode/Codex/Cursor/Copilot can be enabled for coding artifacts while Graphify uses a supported backend such as `gemini`, `ollama`, `openai`, `anthropic`, or `claude-cli`.
+- Added `ai-dev graph rebuild --code-only` to build a graph from the detected code root, usually `src/`, and avoid `public/`, assets, docs, images, and other files that may require semantic extraction.
+- Non-Claude setups no longer recommend waiting for Claude session limits when Graphify needs semantic extraction. The CLI now suggests Gemini, Ollama, API-key backends, or code-only graph rebuilds.
+- When `skipGraph=true`, `doctor` reports the graph as skipped by config instead of treating it as an incomplete setup.
+
+Example OpenCode-only config:
+
+```json
+{
+  "ai": {
+    "providers": ["opencode"],
+    "primary": "opencode"
+  },
+  "artifacts": {
+    "claudeMd": false,
+    "agentsMd": true,
+    "opencodeConfig": true
+  },
+  "skipGraph": true,
+  "graph": {
+    "backend": "none"
+  },
+  "claude": {
+    "updateClaudeMd": false,
+    "requireAuth": false
+  }
+}
+```
+
+Build a code-only graph later:
+
+```bash
+ai-dev graph rebuild --code-only
+```
+
+Use a free/friendly Graphify backend instead:
+
+```bash
+# Gemini API free tier, requires GEMINI_API_KEY
+ai-dev graph rebuild --backend gemini
+
+# Local Ollama backend
+ai-dev graph rebuild --backend ollama
+```

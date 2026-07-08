@@ -72,17 +72,34 @@ export async function runGraphifyClaudeInstall(cwd: string): Promise<boolean> {
   return res.ok;
 }
 
-/** Candidate locations for the built graph, tolerant across Graphify versions. */
-export function graphJsonCandidates(cwd: string): string[] {
-  return [
+/** Candidate locations for the built graph, tolerant across Graphify versions.
+ *
+ * When Graphify is run against a subdirectory (for example `graphify src` for
+ * code-only builds), some versions write output under that target directory
+ * instead of the project root. Keep both root-level and target-level candidates
+ * so a successful command is not reported as a failure just because graph.json
+ * landed in `src/graphify-out/graph.json`.
+ */
+export function graphJsonCandidates(cwd: string, target = "."): string[] {
+  const candidates = [
     path.join(cwd, ".graphify", "graph.json"),
     path.join(cwd, "graphify-out", "graph.json"),
   ];
+
+  if (target && target !== ".") {
+    const targetRoot = path.isAbsolute(target) ? target : path.join(cwd, target);
+    candidates.push(
+      path.join(targetRoot, ".graphify", "graph.json"),
+      path.join(targetRoot, "graphify-out", "graph.json"),
+    );
+  }
+
+  return candidates;
 }
 
 /** Return the first existing graph.json path, or null. */
-export async function findGraphJson(cwd: string): Promise<string | null> {
-  for (const candidate of graphJsonCandidates(cwd)) {
+export async function findGraphJson(cwd: string, target = "."): Promise<string | null> {
+  for (const candidate of graphJsonCandidates(cwd, target)) {
     if (await fs.pathExists(candidate)) return candidate;
   }
   return null;
@@ -207,6 +224,8 @@ function detectClaudeErrors(
 export interface BuildGraphOptions {
   /** Backend passed to `graphify extract` (default: "claude-cli"). */
   backend?: string;
+  /** Target path passed to Graphify (default: "."). */
+  target?: string;
 }
 
 export async function buildGraph(
@@ -214,19 +233,20 @@ export async function buildGraph(
   options: BuildGraphOptions = {},
 ): Promise<GraphOutcome> {
   const backend = options.backend ?? "claude-cli";
+  const target = options.target ?? ".";
   const bin = (await resolveGraphify()) ?? GRAPHIFY_BIN;
 
-  const primary = await run(bin, ["."], { cwd });
+  const primary = await run(bin, [target], { cwd });
   const primaryCombined = `${primary.stdout}\n${primary.stderr}`;
   const assets = parseAssetSummary(primaryCombined);
 
-  const builtPath = await findGraphJson(cwd);
+  const builtPath = await findGraphJson(cwd, target);
   if (builtPath) return { kind: "built", graphPath: builtPath, assets };
 
   if (!needsSemanticExtraction(primaryCombined)) {
     return {
       kind: "failed",
-      command: `${GRAPHIFY_BIN} .`,
+      command: `${GRAPHIFY_BIN} ${target}`,
       exitCode: primary.exitCode,
       stdout: primary.stdout,
       stderr: primary.stderr,
@@ -235,14 +255,14 @@ export async function buildGraph(
   }
 
   logger.detail("Primary build needs semantic extraction; running extract...");
-  const extract = await run(bin, ["extract", ".", "--backend", backend], {
+  const extract = await run(bin, ["extract", target, "--backend", backend], {
     cwd,
   });
   const extractCombined = `${extract.stdout}\n${extract.stderr}`;
   const combined = `${primaryCombined}\n${extractCombined}`;
   const assets2 = parseAssetSummary(combined) ?? assets;
 
-  const builtAfter = await findGraphJson(cwd);
+  const builtAfter = await findGraphJson(cwd, target);
   if (builtAfter) return { kind: "built", graphPath: builtAfter, assets: assets2 };
 
   const instructions = await findInstructionsFile(cwd);
@@ -273,7 +293,7 @@ export async function buildGraph(
 
   return {
     kind: "failed",
-    command: `${GRAPHIFY_BIN} extract . --backend ${backend}`,
+    command: `${GRAPHIFY_BIN} extract ${target} --backend ${backend}`,
     exitCode: extract.exitCode,
     stdout: extract.stdout,
     stderr: extract.stderr,

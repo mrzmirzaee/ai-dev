@@ -18,13 +18,20 @@ import {
   enabledMcpTools,
   findConfigFile,
   loadConfig,
+  resolveArtifacts,
+  resolveAiProviders,
   resolveClaudeSettings,
   resolveProjectType,
   resolveInitOptions,
+  shouldCheckClaude,
+  resolveBackend,
+  graphBackendRequiresClaude,
+  isGraphBuildEnabled,
 } from "../core/config.js";
 import { initCommand } from "./init.js";
 import { logger } from "../core/logger.js";
 import { listConfiguredMcpServers, type McpTool } from "../core/mcp.js";
+import { getProviderStatuses, type ProviderStatus } from "../core/providers.js";
 import { AI_DEV_SETUP_END, AI_DEV_SETUP_START } from "../templates/claudeMd.js";
 import { CLAUDEIGNORE_LINES, GITIGNORE_LINES, GRAPHIFY_IGNORE_LINES } from "../templates/ignores.js";
 import {
@@ -51,11 +58,25 @@ export interface DoctorFacts {
   gitignoreOk: boolean;
   claudeignoreOk: boolean;
   graphifyignoreOk: boolean;
+  agentsMd: boolean;
+  opencodeConfig: boolean;
+  cursorRules: boolean;
+  copilotInstructions: boolean;
+  artifacts: ReturnType<typeof resolveArtifacts>;
+  providers: ProviderStatus[];
   mcpConfigured: Record<string, boolean>;
   /** MCP tools enabled by config (the ones doctor should report on). */
   enabledMcp: McpTool[];
   /** Path of the config file in use, or null when using defaults. */
   configPath: string | null;
+  /** Whether Claude Code is required by active providers. */
+  needsClaude: boolean;
+  /** Resolved Graphify backend for doctor hints. */
+  graphBackend: string;
+  /** Whether graph build is enabled in effective config. */
+  graphBuildEnabled: boolean;
+  /** Whether the graph backend is Claude Code-specific. */
+  graphBackendNeedsClaude: boolean;
   /** Whether Claude auth/session problems should block readiness. */
   requireAuth: boolean;
   /** Whether CLAUDE.md updates are enabled in config. */
@@ -188,6 +209,10 @@ export async function gatherDoctorFacts(
 ): Promise<DoctorFacts> {
   const project = detectProject(cwd);
   const claudeMdPath = path.join(project.root, "CLAUDE.md");
+  const agentsMdPath = path.join(project.root, "AGENTS.md");
+  const opencodeConfigPath = path.join(project.root, "opencode.jsonc");
+  const cursorRulesPath = path.join(project.root, ".cursor", "rules", "ai-dev.mdc");
+  const copilotInstructionsPath = path.join(project.root, ".github", "copilot-instructions.md");
   const claudeStatusPromise =
     typeof options.claudeStatus === "function"
       ? Promise.resolve(options.claudeStatus())
@@ -205,6 +230,10 @@ export async function gatherDoctorFacts(
     gitignore,
     claudeignore,
     graphifyignore,
+    agentsMd,
+    opencodeConfig,
+    cursorRules,
+    copilotInstructions,
   ] = await Promise.all([
     commandExists("pnpm"),
     hasUv(),
@@ -226,6 +255,10 @@ export async function gatherDoctorFacts(
       path.join(project.root, ".graphifyignore"),
       GRAPHIFY_IGNORE_LINES,
     ),
+    fs.pathExists(agentsMdPath),
+    fs.pathExists(opencodeConfigPath),
+    fs.pathExists(cursorRulesPath),
+    fs.pathExists(copilotInstructionsPath),
   ]);
 
   let graphifyy = false;
@@ -236,6 +269,9 @@ export async function gatherDoctorFacts(
 
   const config = options.config ?? {};
   const enabledMcp = enabledMcpTools(config);
+  const artifacts = resolveArtifacts(config);
+  const providerConfig = resolveAiProviders(config);
+  const providers = await getProviderStatuses(providerConfig.providers);
 
   const configPath =
     options.configPath !== undefined
@@ -252,6 +288,10 @@ export async function gatherDoctorFacts(
   }
 
   const { requireAuth, updateClaudeMd } = resolveClaudeSettings(config);
+  const needsClaude = shouldCheckClaude(config);
+  const graphBackend = resolveBackend(undefined, config);
+  const graphBuildEnabled = isGraphBuildEnabled(config);
+  const graphBackendNeedsClaude = graphBackendRequiresClaude(config);
 
   return {
     nodeVersion: process.version,
@@ -267,9 +307,19 @@ export async function gatherDoctorFacts(
     gitignoreOk: gitignore.ok,
     claudeignoreOk: claudeignore.ok,
     graphifyignoreOk: graphifyignore.ok,
+    agentsMd,
+    opencodeConfig,
+    cursorRules,
+    copilotInstructions,
+    artifacts,
+    providers,
     mcpConfigured,
     enabledMcp,
     configPath,
+    needsClaude,
+    graphBackend,
+    graphBuildEnabled,
+    graphBackendNeedsClaude,
     requireAuth,
     updateClaudeMd,
   };
@@ -303,7 +353,11 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
     ),
   );
 
-  checks.push(...claudeRows(facts.claude, facts.requireAuth));
+  if (facts.needsClaude) {
+    checks.push(...claudeRows(facts.claude, facts.requireAuth));
+  } else {
+    checks.push(row("Claude Code", "ok", "optional", "disabled by provider config"));
+  }
 
   checks.push(
     row(
@@ -313,6 +367,21 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
       facts.projectType,
     ),
   );
+  for (const provider of facts.providers) {
+    checks.push(row(`AI provider: ${provider.name}`, provider.available ? "ok" : "warn", "optional", provider.available ? provider.detail : provider.detail ?? provider.installHint));
+  }
+
+  if (!facts.needsClaude && facts.graphBuildEnabled && facts.graphBackendNeedsClaude) {
+    checks.push(
+      row(
+        "Graphify backend",
+        "warn",
+        "optional",
+        "claude-cli selected while Claude provider is disabled; init will skip graph build unless another backend is configured",
+      ),
+    );
+  }
+
   if (!facts.updateClaudeMd) {
     checks.push(row("CLAUDE.md", "ok", "optional", "disabled by config"));
     checks.push(
@@ -339,9 +408,13 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
   checks.push(
     row(
       "Graphify graph",
-      facts.graphExists ? "ok" : "warn",
-      "important",
-      facts.graphExists ? undefined : "not built",
+      facts.graphExists || !facts.graphBuildEnabled ? "ok" : "warn",
+      facts.graphBuildEnabled ? "important" : "optional",
+      facts.graphExists
+        ? undefined
+        : facts.graphBuildEnabled
+          ? "not built"
+          : "skipped by config",
     ),
   );
   checks.push(
@@ -370,6 +443,11 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
         : "missing code-only asset ignore entries",
     ),
   );
+
+  if (facts.artifacts.agentsMd) checks.push(row("AGENTS.md", facts.agentsMd ? "ok" : "warn", "important", facts.agentsMd ? undefined : "missing"));
+  if (facts.artifacts.opencodeConfig) checks.push(row("opencode.jsonc", facts.opencodeConfig ? "ok" : "warn", "important", facts.opencodeConfig ? undefined : "missing"));
+  if (facts.artifacts.cursorRules) checks.push(row("Cursor rules", facts.cursorRules ? "ok" : "warn", "optional", facts.cursorRules ? undefined : "missing"));
+  if (facts.artifacts.copilotInstructions) checks.push(row("Copilot instructions", facts.copilotInstructions ? "ok" : "warn", "optional", facts.copilotInstructions ? undefined : "missing"));
 
   checks.push(
     row(
@@ -432,7 +510,7 @@ export function summarizeDoctor(facts: DoctorFacts): DoctorSummary {
       exitCode: ExitCode.MissingDependency,
     };
   }
-  if (!claudeInstalled) {
+  if (facts.needsClaude && !claudeInstalled) {
     return {
       state: "incomplete-claude",
       lines: [
@@ -447,7 +525,7 @@ export function summarizeDoctor(facts: DoctorFacts): DoctorSummary {
 
   // Claude installed but not usable (auth / incompatible). Important, not a hard
   // missing-dependency, so exit 1.
-  if (!claudeReady) {
+  if (facts.needsClaude && !claudeReady) {
     const extra =
       facts.claude.state === "not-authenticated"
         ? "Run `claude` or `claude login`, then re-run `ai-dev doctor`."
@@ -464,12 +542,12 @@ export function summarizeDoctor(facts: DoctorFacts): DoctorSummary {
   void graphifyReady; // already verified above
 
   // All critical + claude readiness pass. Now important/optional.
-  if (!facts.graphExists) {
+  if (facts.graphBuildEnabled && !facts.graphExists) {
     return {
       state: "graph-missing",
       lines: [
         "Ready for setup, but Graphify graph is not built.",
-        "Recommendation: run ai-dev graph rebuild",
+        "Recommendation: run ai-dev graph rebuild --code-only or choose a Graphify backend such as gemini/ollama.",
       ],
       exitCode: ExitCode.Success,
     };
@@ -481,8 +559,12 @@ export function summarizeDoctor(facts: DoctorFacts): DoctorSummary {
     !facts.gitignoreOk ||
     !facts.claudeignoreOk ||
     !facts.graphifyignoreOk ||
-    facts.claude.state === "session-limited" ||
-    authIssueTolerated ||
+    (facts.artifacts.agentsMd && !facts.agentsMd) ||
+    (facts.artifacts.opencodeConfig && !facts.opencodeConfig) ||
+    (facts.artifacts.cursorRules && !facts.cursorRules) ||
+    (facts.artifacts.copilotInstructions && !facts.copilotInstructions) ||
+    (facts.needsClaude && facts.claude.state === "session-limited") ||
+    (facts.needsClaude && authIssueTolerated) ||
     Object.values(facts.mcpConfigured).some((v) => !v) ||
     !facts.pnpm;
 

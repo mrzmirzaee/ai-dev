@@ -92,21 +92,17 @@ function maybePrintAssetGuidance(
     );
     logger.info("");
     logger.info("Options:");
-    logger.info("1. Use Claude Code after your session limit resets:");
-    logger.info("   claude");
-    logger.info("   ai-dev graph rebuild");
-    logger.info("");
-    logger.info("2. Set a provider API key:");
-    logger.info("   ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY");
-    logger.info("");
-    logger.info("3. Run Graphify on a code-only subdirectory manually if appropriate.");
+    logger.info("1. Use a Graphify backend such as gemini, ollama, openai, anthropic, or claude-cli.");
+    logger.info("2. Build a code-only graph:");
+    logger.info("   ai-dev graph rebuild --code-only");
     return;
   }
 
   logger.info("You can either:");
-  logger.info("1. Use Claude Code semantic extraction.");
-  logger.info("2. Set a provider API key.");
-  logger.info("3. Build a code-only graph by ignoring assets/docs:");
+  logger.info("1. Use a Graphify backend such as gemini, ollama, openai, anthropic, or claude-cli.");
+  logger.info("2. Build a code-only graph:");
+  logger.next("ai-dev graph rebuild --code-only");
+  logger.info("3. Write asset ignores for future builds:");
   logger.next("ai-dev graph ignore-assets");
 }
 
@@ -138,6 +134,10 @@ function printSessionLimitBlock(resetTime?: string): void {
   logger.info("Retry after the reset time shown by Claude, then run:");
   logger.info("");
   logger.info("ai-dev graph rebuild");
+  logger.info("");
+  logger.info("Or use another Graphify backend now, for example:");
+  logger.info("ai-dev graph rebuild --backend gemini");
+  logger.info("ai-dev graph rebuild --code-only");
 }
 
 function printNotAuthenticatedBlock(): void {
@@ -165,10 +165,14 @@ function printIncompatibleBlock(): void {
   logger.info("winget install Anthropic.ClaudeCode --source winget");
 }
 
-function printNoProviderBlock(ignoreAssetsAlreadyApplied = false): void {
+async function printNoProviderBlock(cwd: string, ignoreAssetsAlreadyApplied = false): Promise<void> {
   logger.info("");
   logger.info(
-    "Graphify needs semantic extraction for docs/images, but no provider is available.",
+    "Graphify needs semantic extraction for docs/images, but no Graphify backend is available.",
+  );
+  logger.info("");
+  logger.info(
+    "OpenCode/Codex/Cursor/Copilot are AI coding tools; Graphify semantic extraction needs a supported backend such as gemini, ollama, openai, anthropic, or claude-cli.",
   );
   logger.info("");
 
@@ -176,36 +180,69 @@ function printNoProviderBlock(ignoreAssetsAlreadyApplied = false): void {
     logger.info(
       "Asset ignore was already applied, but this Graphify version still detects docs/images.",
     );
-    logger.info("");
     logger.info("Your Graphify version may not support .graphifyignore.");
     logger.info("");
-    logger.info("Options:");
-    logger.info("1. Use Claude Code after your session limit resets:");
-    logger.info("   claude");
-    logger.info("   ai-dev graph rebuild");
-    logger.info("");
-    logger.info("2. Set a provider API key:");
-    logger.info("   ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY");
-    logger.info("");
-    logger.info("3. Run Graphify on a code-only subdirectory manually if appropriate.");
-    return;
   }
 
-  logger.info("Options:");
-  logger.info("1. Log in to Claude Code and use claude-cli:");
-  logger.info("   claude");
-  logger.info("   ai-dev graph rebuild");
-  logger.info("");
-  logger.info("2. Set an API key:");
-  logger.info("   ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY");
-  logger.info("");
-  logger.info("3. Build a code-only graph by ignoring docs/images:");
-  logger.info("   ai-dev graph ignore-assets");
+  await printGraphBackendOptions(cwd, true);
 }
 
 function toRel(p: string): string {
   const rel = path.relative(process.cwd(), p);
   return rel && !rel.startsWith("..") ? rel : p;
+}
+
+
+async function detectCodeOnlyTarget(root: string): Promise<string> {
+  const preferred = ["src", "app", "pages", "components", "lib", "server", "api"];
+  for (const dir of preferred) {
+    if (await fs.pathExists(path.join(root, dir))) return dir;
+  }
+  return ".";
+}
+
+async function selectedProviderLabels(cwd: string): Promise<string[]> {
+  try {
+    const { config } = await loadConfig(cwd);
+    const providers = config.ai?.providers?.length ? config.ai.providers : ["claude"];
+    const labels: Record<string, string> = {
+      claude: "Claude Code",
+      opencode: "OpenCode",
+      codex: "Codex / AGENTS.md",
+      cursor: "Cursor",
+      copilot: "GitHub Copilot",
+      generic: "Generic AI Agent",
+    };
+    return providers.map((p) => labels[p] ?? p);
+  } catch {
+    return [];
+  }
+}
+
+async function printGraphBackendOptions(cwd: string, includeClaude = false): Promise<void> {
+  const labels = await selectedProviderLabels(cwd);
+  if (labels.length) {
+    logger.info(`Selected AI coding provider(s): ${labels.join(", ")}.`);
+    logger.info("AI coding providers are separate from Graphify semantic extraction backends.");
+    logger.info("");
+  }
+  logger.info("Recommended options:");
+  logger.info("1. Gemini API free tier:");
+  logger.info("   set GEMINI_API_KEY");
+  logger.info("   ai-dev graph rebuild --backend gemini");
+  logger.info("");
+  logger.info("2. Ollama local backend:");
+  logger.info("   install Ollama and pull a model");
+  logger.info("   ai-dev graph rebuild --backend ollama");
+  logger.info("");
+  logger.info("3. Code-only graph (avoids public/assets/docs):");
+  logger.info("   ai-dev graph rebuild --code-only");
+  if (includeClaude) {
+    logger.info("");
+    logger.info("4. Claude Code subscription backend:");
+    logger.info("   claude");
+    logger.info("   ai-dev graph rebuild --backend claude-cli");
+  }
 }
 
 /**
@@ -240,7 +277,7 @@ export async function renderGraphOutcome(
       return ExitCode.SetupFailed;
 
     case "no-provider":
-      printNoProviderBlock(ignoreAssetsAlreadyApplied);
+      await printNoProviderBlock(cwd, ignoreAssetsAlreadyApplied);
       return ExitCode.SetupFailed;
 
     case "failed":
@@ -330,12 +367,24 @@ export async function graphRebuildCommand(
   }
 
   // --- standard build ------------------------------------------------------
+  let target = ".";
+  if (options.codeOnly) {
+    target = await detectCodeOnlyTarget(project.root);
+    logger.detail(`Code-only graph target: ${target}`);
+  }
+
+  if (backend === "none" && !options.codeOnly) {
+    logger.error("Graph backend is set to none.");
+    logger.next("Use `ai-dev graph rebuild --code-only` or pass `--backend gemini|ollama|openai|anthropic|claude-cli`.");
+    return ExitCode.SetupFailed;
+  }
+
   const spinner = ora({
     text: "Rebuilding graph...",
     stream: process.stdout,
   }).start();
   try {
-    const outcome = await buildGraph(project.root, { backend });
+    const outcome = await buildGraph(project.root, { backend, target });
     if (outcome.kind === "built") spinner.succeed("Graph rebuilt.");
     else if (outcome.kind === "instructions")
       spinner.info("Semantic extraction required.");
@@ -370,9 +419,9 @@ export async function graphIgnoreAssetsCommand(
     }
     logger.detail("Note: Some Graphify versions may not read .graphifyignore.");
     logger.detail(
-      "If rebuild still requires semantic extraction, use Claude Code or an API key.",
+      "If rebuild still requires semantic extraction, use `ai-dev graph rebuild --code-only` or choose a Graphify backend such as gemini/ollama.",
     );
-    logger.next("Then run: ai-dev graph rebuild");
+    logger.next("Then run: ai-dev graph rebuild --code-only");
     return ExitCode.Success;
   } catch (err) {
     logger.error(

@@ -13,7 +13,7 @@ import {
 } from "../core/config.js";
 import { initCommand } from "./init.js";
 import { logger } from "../core/logger.js";
-import { ExitCode, type AiDevConfig, type ExitCodeValue, type ProjectType } from "../types.js";
+import { ExitCode, type AiDevConfig, type AiProvider, type ExitCodeValue, type ProjectType } from "../types.js";
 
 const PROJECT_TYPES: ProjectType[] = [
   "Next.js",
@@ -73,7 +73,7 @@ export async function wizardCommand(
     );
   }
 
-  const answers = await prompts(
+  const baseAnswers = await prompts(
     [
       {
         type: "select",
@@ -83,13 +83,54 @@ export async function wizardCommand(
         initial: Math.max(0, PROJECT_TYPES.indexOf(existing.projectType ?? project.type)),
       },
       {
-        type: "confirm",
+        type: "multiselect",
+        name: "providers",
+        message: "AI coding tools to support",
+        choices: [
+          { title: "Claude Code", value: "claude", selected: current.ai.providers.includes("claude") },
+          { title: "OpenCode", value: "opencode", selected: current.ai.providers.includes("opencode") },
+          { title: "Codex / AGENTS.md", value: "codex", selected: current.ai.providers.includes("codex") },
+          { title: "Cursor", value: "cursor", selected: current.ai.providers.includes("cursor") },
+          { title: "GitHub Copilot", value: "copilot", selected: current.ai.providers.includes("copilot") },
+          { title: "Generic AI Agent", value: "generic", selected: current.ai.providers.includes("generic") },
+        ],
+        hint: "Space to select, Enter to continue",
+      },
+    ],
+    {
+      onCancel: () => {
+        logger.warn("Wizard cancelled.");
+        return false;
+      },
+    },
+  );
+
+  if (!baseAnswers || Object.keys(baseAnswers).length === 0) return ExitCode.SetupFailed;
+
+  const selectedProviders = new Set<string>(
+    baseAnswers.providers?.length ? baseAnswers.providers : ["claude"],
+  );
+  const hasClaudeProvider = selectedProviders.has("claude");
+  const defaultBuildGraph = hasClaudeProvider ? !current.skipGraph : false;
+  const backendChoices = hasClaudeProvider
+    ? ["claude-cli", "gemini", "ollama", "openai", "anthropic"]
+    : ["none", "gemini", "ollama", "openai", "anthropic", "claude-cli"];
+  const defaultBackend = hasClaudeProvider
+    ? current.graph.backend
+    : current.graph.backend === "claude-cli"
+      ? "none"
+      : current.graph.backend;
+
+  const answers = await prompts(
+    [
+      {
+        type: hasClaudeProvider ? "confirm" : null,
         name: "updateClaudeMd",
         message: "Create/update CLAUDE.md and install Graphify Claude hooks?",
         initial: current.claude.updateClaudeMd,
       },
       {
-        type: "confirm",
+        type: hasClaudeProvider ? "confirm" : null,
         name: "requireAuth",
         message: "Require Claude authentication for doctor readiness?",
         initial: current.claude.requireAuth,
@@ -97,15 +138,29 @@ export async function wizardCommand(
       {
         type: "confirm",
         name: "buildGraph",
-        message: "Build Graphify graph during init?",
-        initial: !current.skipGraph,
+        message: hasClaudeProvider
+          ? "Build Graphify graph during init?"
+          : "Build Graphify graph during init? (default off for non-Claude setups)",
+        initial: defaultBuildGraph,
       },
       {
-        type: "select",
+        type: (prev: boolean) => (prev ? "select" : null),
         name: "backend",
-        message: "Graphify semantic backend",
-        choices: ["claude-cli", "anthropic", "openai", "gemini", "ollama"].map((value) => ({ title: value, value })),
-        initial: ["claude-cli", "anthropic", "openai", "gemini", "ollama"].indexOf(current.graph.backend),
+        message: "Graphify semantic backend (separate from your AI coding tool)",
+        choices: backendChoices.map((value) => ({
+          title:
+            value === "none"
+              ? "none / code-only later"
+              : value === "gemini"
+                ? "gemini - free tier available, requires GEMINI_API_KEY"
+                : value === "ollama"
+                  ? "ollama - free local backend"
+                  : value === "claude-cli"
+                    ? "claude-cli - uses Claude Code subscription"
+                    : value,
+          value,
+        })),
+        initial: Math.max(0, backendChoices.indexOf(defaultBackend)),
       },
       {
         type: "multiselect",
@@ -137,13 +192,24 @@ export async function wizardCommand(
 
   const selected = new Set<string>(answers.mcpTools ?? []);
   const config: AiDevConfig = {
-    projectType: answers.projectType,
+    projectType: baseAnswers.projectType,
     skipGraph: !answers.buildGraph,
     skipMcp: selected.size === 0,
-    graph: { backend: answers.backend },
+    ai: {
+      providers: Array.from(selectedProviders) as AiProvider[],
+      primary: (selectedProviders.has("claude") ? "claude" : Array.from(selectedProviders)[0]) as AiProvider,
+    },
+    artifacts: {
+      claudeMd: selectedProviders.has("claude"),
+      agentsMd: ["opencode", "codex", "generic"].some((provider) => selectedProviders.has(provider)),
+      opencodeConfig: selectedProviders.has("opencode"),
+      cursorRules: selectedProviders.has("cursor"),
+      copilotInstructions: selectedProviders.has("copilot"),
+    },
+    graph: { backend: answers.backend ?? defaultBackend },
     claude: {
-      updateClaudeMd: answers.updateClaudeMd,
-      requireAuth: answers.requireAuth,
+      updateClaudeMd: hasClaudeProvider ? answers.updateClaudeMd : false,
+      requireAuth: hasClaudeProvider ? answers.requireAuth : false,
     },
     mcp: {
       context7: selected.has("context7"),
@@ -165,6 +231,6 @@ export async function wizardCommand(
   return initCommand(
     resolveInitOptions({ yes: true, force: options.force }, config),
     project.root,
-    { config, projectTypeFlag: answers.projectType },
+    { config, projectTypeFlag: baseAnswers.projectType },
   );
 }

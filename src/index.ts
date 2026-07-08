@@ -13,11 +13,12 @@ import {
   configShowCommand,
 } from "./commands/config.js";
 import { wizardCommand } from "./commands/wizard.js";
+import { providerDoctorCommand, providerListCommand } from "./commands/providers.js";
 import { ConfigError, loadConfig, resolveInitOptions } from "./core/config.js";
 import { logger } from "./core/logger.js";
 import { ExitCode, type InitOptions, type ProjectType } from "./types.js";
 
-const VERSION = "1.2.0";
+const VERSION = "2.0.4";
 
 function finish(code: number): never {
   process.exit(code);
@@ -29,7 +30,7 @@ async function main(): Promise<void> {
   program
     .name("ai-dev")
     .description(
-      "Bootstrap AI development tooling (Claude Code + Graphify + MCP) for any project.",
+      "Bootstrap multi-agent AI development tooling (Claude Code, OpenCode, AGENTS.md, Graphify, MCP) for any project.",
     )
     .version(VERSION, "-v, --version", "Print version");
 
@@ -122,11 +123,16 @@ async function main(): Promise<void> {
       "--backend <name>",
       "Backend for `graphify extract` (overrides config).",
     )
-    .action(async (opts: { semantic?: string; backend?: string }) => {
+    .option(
+      "--code-only",
+      "Build the graph from the detected code root only (for example src/) to avoid docs/assets.",
+    )
+    .action(async (opts: { semantic?: string; backend?: string; codeOnly?: boolean }) => {
       finish(
         await graphRebuildCommand({
           semantic: opts.semantic,
           backend: opts.backend,
+          codeOnly: opts.codeOnly,
         }),
       );
     });
@@ -160,6 +166,24 @@ async function main(): Promise<void> {
     });
   config.action(() => {
     config.help();
+  });
+
+  // providers
+  const provider = program.command("provider").description("AI coding provider management.");
+  provider
+    .command("list")
+    .description("List supported AI coding providers and their artifacts.")
+    .action(async () => {
+      finish(await providerListCommand());
+    });
+  provider
+    .command("doctor")
+    .description("Check configured AI coding providers for this project.")
+    .action(async () => {
+      finish(await providerDoctorCommand());
+    });
+  provider.action(() => {
+    provider.help();
   });
 
   // mcp

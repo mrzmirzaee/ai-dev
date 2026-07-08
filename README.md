@@ -3,7 +3,7 @@
 A cross-platform CLI that bootstraps multi-agent AI development tooling for any project — Claude Code, OpenCode, Codex-compatible agents, Cursor, GitHub Copilot, and generic AI coding agents. It wires up Graphify (a codebase knowledge graph), prepares shared agent instruction artifacts such as `CLAUDE.md`, `AGENTS.md`, `opencode.jsonc`, Cursor rules, Copilot instructions, ignore files, and recommended MCP tools, and now generates project-aware guidance from your actual stack, scripts, and folder layout.
 
 
-## v2.2.0 highlights
+## v2.2.1 highlights
 
 - Auto-installs `uv` during setup when it is missing, then refreshes PATH for the current terminal session.
 - Uses a shared Graphify resolver across `doctor`, `init`, and `graph rebuild`, including Windows uv tool paths and `uvx` fallback.
@@ -421,3 +421,30 @@ ai-dev graph rebuild --backend ollama
 - Detects important folders such as `src/`, `app/`, `pages/`, `components/`, `lib/`, `hooks/`, `stores/`, `services/`, `public/`, and test/storybook folders.
 - Adds `ai-dev context` to preview the generated project-aware guidance before committing artifacts.
 - Doctor now recognizes code-only graphs under common targets such as `src/graphify-out/graph.json`, and reports a built graph even when init graph builds are skipped by config.
+
+## v2.3.0 commands
+
+### One-command setup
+
+```bash
+ai-dev setup --provider claude --yes
+```
+
+Runs a non-interactive setup flow for the current project, applies safe fixes, and finishes with a doctor check.
+
+### Dependency management
+
+```bash
+ai-dev deps doctor
+ai-dev deps install graphify
+```
+
+`ai-dev` now treats `uv` as the preferred installer, not a hard dependency. Graphify installation falls back through `uv`, `pipx`, and `pip` when available.
+
+### Compact status
+
+```bash
+ai-dev status
+```
+
+Prints a short readiness summary: project type, provider, Claude state, Graphify state, graph state, MCP state, and overall status.

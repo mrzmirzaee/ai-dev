@@ -2,25 +2,34 @@ import { z } from "zod";
 
 /**
  * Supported / detectable project types.
+ *
+ * Keep this as the single source of truth for project type values used by:
+ * - detector output
+ * - config validation
+ * - wizard choices
+ * - CLI project-type overrides
  */
 export type AiProvider = "claude" | "opencode" | "codex" | "cursor" | "copilot" | "generic";
 
-export type ProjectType =
-  | "Next.js"
-  | "NestJS"
-  | "React"
-  | "Vite"
-  | "Node.js"
-  | "Python"
-  | "Django"
-  | "FastAPI"
-  | "Laravel"
-  | "Symfony"
-  | "PHP"
-  | "Kotlin"
-  | "Android Kotlin"
-  | "Kotlin Multiplatform"
-  | "Unknown";
+export const PROJECT_TYPES = [
+  "Next.js",
+  "NestJS",
+  "React",
+  "Vite",
+  "Node.js",
+  "Python",
+  "Django",
+  "FastAPI",
+  "Laravel",
+  "Symfony",
+  "PHP",
+  "Kotlin",
+  "Android Kotlin",
+  "Kotlin Multiplatform",
+  "Unknown",
+] as const;
+
+export type ProjectType = (typeof PROJECT_TYPES)[number];
 
 /**
  * Exit codes used across the CLI.
@@ -111,25 +120,7 @@ const ArtifactConfigSchema = z.object({
  * Precedence everywhere is: CLI flag > config file > built-in default.
  */
 export const AiDevConfigSchema = z.object({
-  projectType: z
-    .enum([
-      "Next.js",
-      "NestJS",
-      "React",
-      "Vite",
-      "Node.js",
-      "Python",
-      "Django",
-      "FastAPI",
-      "Laravel",
-      "Symfony",
-      "PHP",
-      "Kotlin",
-      "Android Kotlin",
-      "Kotlin Multiplatform",
-      "Unknown",
-    ])
-    .optional(),
+  projectType: z.enum(PROJECT_TYPES).optional(),
   skipGraph: z.boolean().optional(),
   skipMcp: z.boolean().optional(),
   ai: z

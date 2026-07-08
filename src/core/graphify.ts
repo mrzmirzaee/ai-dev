@@ -1,7 +1,7 @@
 import fs from "fs-extra";
 import path from "node:path";
 import { commandExists, resolveExecutable, run } from "./command.js";
-import { uvBinDirs } from "./platform.js";
+import { pythonBinDirs, toolBinDirs, uvBinDirs } from "./platform.js";
 import { logger } from "./logger.js";
 
 /**
@@ -62,36 +62,125 @@ export async function ensureUv(): Promise<boolean> {
   return installed;
 }
 
+export type PythonInstaller = "uv" | "pipx" | "pip" | "none";
+
+export interface InstallerStatus {
+  installer: PythonInstaller;
+  command?: string;
+  detail: string;
+}
+
+function prependPathDirs(dirs: string[]): void {
+  const delimiter = process.platform === "win32" ? ";" : ":";
+  const existing = new Set((process.env.PATH ?? "").split(delimiter).filter(Boolean));
+  for (const dir of dirs) {
+    if (!existing.has(dir)) {
+      process.env.PATH = `${dir}${delimiter}${process.env.PATH ?? ""}`;
+      existing.add(dir);
+    }
+  }
+}
+
+/** Add common uv/pip/pipx tool bin directories to PATH for the current process. */
+export function refreshToolPath(): void {
+  prependPathDirs(toolBinDirs());
+}
+
+export async function resolvePipx(): Promise<string | null> {
+  return (await resolveExecutable("pipx")) ?? ((await commandExists("pipx")) ? "pipx" : null);
+}
+
+export async function resolvePython(): Promise<string | null> {
+  for (const cmd of process.platform === "win32" ? ["py", "python", "python3"] : ["python3", "python"]) {
+    if (await commandExists(cmd)) return cmd;
+  }
+  return null;
+}
+
+export async function resolvePythonInstaller(): Promise<InstallerStatus> {
+  const uv = await resolveUv();
+  if (uv) return { installer: "uv", command: uv, detail: "uv" };
+  const pipx = await resolvePipx();
+  if (pipx) return { installer: "pipx", command: pipx, detail: "pipx" };
+  const python = await resolvePython();
+  if (python) return { installer: "pip", command: python, detail: `${python} -m pip` };
+  return { installer: "none", detail: "no uv, pipx, or python/pip found" };
+}
+
+async function installWithUv(command: string, already: boolean): Promise<boolean> {
+  if (already) {
+    logger.detail(`Upgrading ${GRAPHIFY_PACKAGE} with uv...`);
+    const up = await run(command, ["tool", "upgrade", GRAPHIFY_PACKAGE]);
+    if (up.ok) return true;
+    logger.detail("uv upgrade reported an issue; attempting install.");
+  } else {
+    logger.detail(`Installing ${GRAPHIFY_PACKAGE} with uv...`);
+  }
+  const res = await run(command, ["tool", "install", GRAPHIFY_PACKAGE]);
+  if (!res.ok && res.stderr) logger.detail(res.stderr.split(/\r?\n/)[0] ?? "");
+  refreshToolPath();
+  return isGraphifyAvailable();
+}
+
+async function installWithPipx(command: string, already: boolean): Promise<boolean> {
+  if (already) {
+    logger.detail(`Upgrading ${GRAPHIFY_PACKAGE} with pipx...`);
+    const up = await run(command, ["upgrade", GRAPHIFY_PACKAGE]);
+    if (up.ok) return true;
+    logger.detail("pipx upgrade reported an issue; attempting install.");
+  } else {
+    logger.detail(`Installing ${GRAPHIFY_PACKAGE} with pipx...`);
+  }
+  const res = await run(command, ["install", GRAPHIFY_PACKAGE]);
+  if (!res.ok && res.stderr) logger.detail(res.stderr.split(/\r?\n/)[0] ?? "");
+  refreshToolPath();
+  return isGraphifyAvailable();
+}
+
+async function installWithPip(python: string): Promise<boolean> {
+  logger.detail(`Installing ${GRAPHIFY_PACKAGE} with ${python} -m pip --user...`);
+  const res = await run(python, ["-m", "pip", "install", "--user", "--upgrade", GRAPHIFY_PACKAGE]);
+  if (!res.ok && res.stderr) logger.detail(res.stderr.split(/\r?\n/)[0] ?? "");
+  prependPathDirs(pythonBinDirs());
+  refreshToolPath();
+  return isGraphifyAvailable();
+}
+
 /**
- * Install or upgrade graphifyy via uv. Tries upgrade first when already
- * installed, otherwise installs. Returns whether the tool ended up available.
+ * Install or upgrade graphifyy using the best available installer.
+ * uv is preferred, but pipx and pip are supported fallbacks.
  */
 export async function installOrUpdateGraphify(): Promise<boolean> {
-  // `uv tool upgrade` fails cleanly if not installed, so try install first
-  // when the executable is missing, upgrade when present.
-  const uv = (await resolveUv()) ?? "uv";
   const already = await isGraphifyAvailable();
-
   if (already) {
-    logger.detail(`Upgrading ${GRAPHIFY_PACKAGE}...`);
-    const up = await run(uv, ["tool", "upgrade", GRAPHIFY_PACKAGE]);
-    if (up.ok) return true;
-    logger.detail("Upgrade reported an issue; attempting install.");
-  } else {
-    logger.detail(`Installing ${GRAPHIFY_PACKAGE}...`);
+    logger.detail("graphify command is already available.");
+    return true;
   }
 
-  const install = await run(uv, ["tool", "install", GRAPHIFY_PACKAGE]);
-  if (!install.ok && install.stderr) {
-    logger.detail(install.stderr.split(/\r?\n/)[0] ?? "");
+  let installer = await resolvePythonInstaller();
+  if (installer.installer === "none") {
+    logger.detail("No Python tool installer found. Attempting to bootstrap uv...");
+    const uvOk = await ensureUv();
+    if (uvOk) installer = await resolvePythonInstaller();
   }
-  return isGraphifyAvailable();
+
+  switch (installer.installer) {
+    case "uv":
+      return installWithUv(installer.command ?? "uv", already);
+    case "pipx":
+      return installWithPipx(installer.command ?? "pipx", already);
+    case "pip":
+      return installWithPip(installer.command ?? "python");
+    default:
+      return false;
+  }
 }
 
 /**
  * Whether the `graphify` executable is resolvable (PATH or known uv dirs).
  */
 export async function isGraphifyAvailable(): Promise<boolean> {
+  refreshToolPath();
   if (await commandExists(GRAPHIFY_BIN)) return true;
   if ((await resolveExecutable(GRAPHIFY_BIN)) !== null) return true;
   const uv = await resolveUv();

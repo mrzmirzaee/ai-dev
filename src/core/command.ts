@@ -1,7 +1,7 @@
 import { execa, type Options, type Result } from "execa";
 import fs from "fs-extra";
 import path from "node:path";
-import { executableNames, isWindows, uvBinDirs } from "./platform.js";
+import { executableNames, isWindows, toolBinDirs } from "./platform.js";
 
 export interface RunResult {
   ok: boolean;
@@ -60,7 +60,7 @@ export async function commandExists(command: string): Promise<boolean> {
 
 /**
  * Resolve the absolute path to an executable, first via PATH then via known
- * uv install directories (important on Windows where uv's bin dir is often
+ * Python/uv tool install directories (important on Windows where uv's bin dir is often
  * not on PATH inside fresh shells). Returns null when nothing is found.
  */
 export async function resolveExecutable(
@@ -76,8 +76,8 @@ export async function resolveExecutable(
     }
   }
 
-  // Probe known uv bin directories directly.
-  for (const dir of uvBinDirs()) {
+  // Probe known tool bin directories directly.
+  for (const dir of toolBinDirs()) {
     for (const name of names) {
       const candidate = path.join(dir, name);
       try {

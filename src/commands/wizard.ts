@@ -13,19 +13,7 @@ import {
 } from "../core/config.js";
 import { initCommand } from "./init.js";
 import { logger } from "../core/logger.js";
-import { ExitCode, type AiDevConfig, type AiProvider, type ExitCodeValue, type ProjectType } from "../types.js";
-
-const PROJECT_TYPES: ProjectType[] = [
-  "Next.js",
-  "NestJS",
-  "React",
-  "Vite",
-  "Node.js",
-  "Python",
-  "Laravel",
-  "PHP",
-  "Unknown",
-];
+import { ExitCode, PROJECT_TYPES, type AiDevConfig, type AiProvider, type ExitCodeValue } from "../types.js";
 
 export interface WizardOptions {
   yes?: boolean;

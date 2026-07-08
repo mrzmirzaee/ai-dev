@@ -5,7 +5,6 @@ import ora from "ora";
 import {
   buildGraph,
   buildGraphFromSemantic,
-  hasUv,
   isGraphifyAvailable,
   type AssetSummary,
   type GraphOutcome,
@@ -320,12 +319,9 @@ export async function graphRebuildCommand(
 ): Promise<ExitCodeValue> {
   logger.heading("ai-dev graph rebuild");
 
-  if (!(await hasUv())) {
-    logger.error("uv is not installed — required for graphify.");
-    return ExitCode.MissingDependency;
-  }
   if (!(await isGraphifyAvailable())) {
-    logger.error("graphify command not found. Run `ai-dev init` first.");
+    logger.error("graphify command not found.");
+    logger.next("Run `ai-dev deps install graphify` or `ai-dev doctor --fix`, then retry.");
     return ExitCode.MissingDependency;
   }
 

@@ -24,7 +24,6 @@ import {
 } from "../core/claude.js";
 import {
   buildGraph,
-  ensureUv,
   installOrUpdateGraphify,
   isGraphifyAvailable,
   runGraphifyClaudeInstall,
@@ -234,49 +233,34 @@ export async function initCommand(
     logger.detail("Skipping Claude Code check (Claude provider/backend disabled).");
   }
 
-  // --- uv + graphify --------------------------------------------------------
+  // --- Graphify -------------------------------------------------------------
   logger.heading("Graphify");
-  const uvAvailable = await ensureUv();
-  if (!uvAvailable) {
-    missingRequired = true;
-    logger.error("uv is not installed and could not be installed automatically — required to install graphifyy.");
-    logger.next(
-      process.platform === "win32"
-        ? "Install uv: powershell -ExecutionPolicy ByPass -c \"irm https://astral.sh/uv/install.ps1 | iex\""
-        : "Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh",
-    );
-  } else {
-    logger.success("uv detected.");
-    const spinner = ora({ text: "Installing/updating graphifyy...", stream: process.stdout }).start();
-    let installed = false;
-    try {
-      installed = await installOrUpdateGraphify();
-    } catch {
-      installed = false;
-    }
-    if (installed) spinner.succeed("graphifyy is installed.");
-    else spinner.fail("Could not confirm graphifyy installation.");
+  const spinner = ora({ text: "Installing/checking graphifyy...", stream: process.stdout }).start();
+  let installed = false;
+  try {
+    installed = await installOrUpdateGraphify();
+  } catch {
+    installed = false;
+  }
+  if (installed) spinner.succeed("graphifyy is ready.");
+  else spinner.fail("Could not confirm graphifyy installation.");
 
-    const graphifyReady = await isGraphifyAvailable();
-    if (graphifyReady) {
-      logger.success("graphify command is available.");
-      // Integrate with Claude Code (best-effort). This rewrites CLAUDE.md, so
-      // it is skipped when the user opted out of CLAUDE.md updates.
-      if (writeClaudeArtifacts) {
-        const integrated = await runGraphifyClaudeInstall(project.root);
-        if (integrated) logger.success("Ran `graphify claude install`.");
-        else logger.warn("`graphify claude install` did not complete cleanly.");
-      } else {
-        logger.detail(
-          artifacts.claudeMd ? "Skipping `graphify claude install` (claude.updateClaudeMd = false)." : "Skipping `graphify claude install` (Claude provider/artifact disabled).",
-        );
-      }
+  const graphifyReady = await isGraphifyAvailable();
+  if (graphifyReady) {
+    logger.success("graphify command is available.");
+    if (writeClaudeArtifacts) {
+      const integrated = await runGraphifyClaudeInstall(project.root);
+      if (integrated) logger.success("Ran `graphify claude install`.");
+      else logger.warn("`graphify claude install` did not complete cleanly.");
     } else {
-      logger.warn("graphify command not found on PATH after install.");
       logger.detail(
-        "On Windows, check %USERPROFILE%\\.local\\bin or %APPDATA%\\uv\\bin.",
+        artifacts.claudeMd ? "Skipping `graphify claude install` (claude.updateClaudeMd = false)." : "Skipping `graphify claude install` (Claude provider/artifact disabled).",
       );
     }
+  } else {
+    missingRequired = true;
+    logger.warn("Graphify is not ready.");
+    logger.next("Run `ai-dev deps install graphify` or install Python/uv/pipx, then retry.");
   }
 
   // --- Graph build ----------------------------------------------------------
@@ -297,7 +281,7 @@ export async function initCommand(
     logger.next(
       "Set graph.backend to gemini/ollama/openai/anthropic, or run `ai-dev graph rebuild --code-only` when ready.",
     );
-  } else if (uvAvailable && (await isGraphifyAvailable())) {
+  } else if (await isGraphifyAvailable()) {
     logger.heading("Building Graphify graph");
     const spinner = ora({ text: "Building graph...", stream: process.stdout }).start();
     try {
@@ -365,7 +349,7 @@ export async function initCommand(
     return ExitCode.SetupFailed;
   }
   if (missingRequired) {
-    logger.warn("Setup finished, but a required dependency (uv) is missing.");
+    logger.warn("Setup finished, but Graphify is not ready.");
     return ExitCode.MissingDependency;
   }
   logger.success("Project is set up for AI development.");

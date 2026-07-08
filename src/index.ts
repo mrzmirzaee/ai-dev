@@ -15,11 +15,14 @@ import {
 import { wizardCommand } from "./commands/wizard.js";
 import { providerDoctorCommand, providerListCommand } from "./commands/providers.js";
 import { contextCommand } from "./commands/context.js";
+import { depsDoctorCommand, depsInstallCommand } from "./commands/deps.js";
+import { setupCommand } from "./commands/setup.js";
+import { statusCommand } from "./commands/status.js";
 import { ConfigError, loadConfig, resolveInitOptions } from "./core/config.js";
 import { logger } from "./core/logger.js";
-import { ExitCode, type InitOptions, type ProjectType } from "./types.js";
+import { ExitCode, type AiProvider, type InitOptions, type ProjectType } from "./types.js";
 
-const VERSION = "2.2.0";
+const VERSION = "2.3.0";
 
 function finish(code: number): never {
   process.exit(code);
@@ -46,7 +49,7 @@ async function main(): Promise<void> {
     .option("--wizard", "Run the interactive setup wizard before init.")
     .option(
       "--project-type <type>",
-      "Override project-type detection (e.g. Next.js, Vite, Node.js).",
+      "Override project-type detection (e.g. Next.js, Vite, Node.js, Laravel, FastAPI, Android Kotlin, Kotlin Multiplatform).",
     )
     .action(async (opts: Record<string, unknown>) => {
       if (opts.wizard) {
@@ -101,6 +104,50 @@ async function main(): Promise<void> {
       finish(await wizardCommand(process.cwd(), opts));
     });
 
+
+  // setup
+  program
+    .command("setup")
+    .description("Run one-command project onboarding (init, dependency fixes, optional graph, final doctor).")
+    .option("--provider <name>", "Provider preset: claude, opencode, codex, cursor, copilot, or generic")
+    .option("-y, --yes", "Non-interactive mode; accept defaults.")
+    .option("--force", "Continue even if this folder is not a project root.")
+    .option("--skip-graph", "Skip graph build during setup.")
+    .option("--code-only", "Build a code-only graph when graph build is enabled.")
+    .action(async (opts: { provider?: string; yes?: boolean; force?: boolean; skipGraph?: boolean; codeOnly?: boolean }) => {
+      finish(await setupCommand({
+        provider: opts.provider as AiProvider | undefined,
+        yes: opts.yes,
+        force: opts.force,
+        skipGraph: opts.skipGraph,
+        codeOnly: opts.codeOnly,
+      }));
+    });
+
+  // status
+  program
+    .command("status")
+    .description("Print a compact readiness summary for the current project.")
+    .action(async () => {
+      finish(await statusCommand(process.cwd()));
+    });
+
+  // deps
+  const deps = program.command("deps").description("Manage external dependencies used by ai-dev.");
+  deps
+    .command("doctor")
+    .description("Check external dependency installers and Graphify availability.")
+    .action(async () => {
+      finish(await depsDoctorCommand());
+    });
+  deps
+    .command("install")
+    .argument("<tool>", "Dependency key: graphify")
+    .description("Install an external dependency using the best available installer.")
+    .action(async (tool: string) => {
+      finish(await depsInstallCommand(tool));
+    });
+  deps.action(() => { deps.help(); });
 
   // context
   program

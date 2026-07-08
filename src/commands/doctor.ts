@@ -12,7 +12,7 @@ import {
   type ClaudeState,
   type ClaudeStatus,
 } from "../core/claude.js";
-import { findAnyGraphJson, hasUv, isGraphifyAvailable, resolveUv } from "../core/graphify.js";
+import { findAnyGraphJson, hasUv, isGraphifyAvailable, resolvePythonInstaller, resolveUv } from "../core/graphify.js";
 import {
   ConfigError,
   enabledMcpTools,
@@ -50,6 +50,7 @@ export interface DoctorFacts {
   uv: boolean;
   graphifyy: boolean;
   graphifyCmd: boolean;
+  installer?: string;
   claude: ClaudeStatus;
   projectType: ProjectType;
   claudeMd: boolean;
@@ -268,6 +269,7 @@ export async function gatherDoctorFacts(
     const list = await run(uvBin, ["tool", "list"]);
     graphifyy = list.ok && /graphifyy/i.test(list.stdout);
   }
+  const installerStatus = await resolvePythonInstaller();
 
   const config = options.config ?? {};
   const enabledMcp = enabledMcpTools(config);
@@ -301,6 +303,7 @@ export async function gatherDoctorFacts(
     uv,
     graphifyy,
     graphifyCmd,
+    installer: installerStatus.detail,
     claude,
     projectType: resolveProjectType(project.type, config),
     claudeMd,
@@ -337,14 +340,15 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
     row("pnpm", facts.pnpm ? "ok" : "warn", "optional", facts.pnpm ? undefined : "not installed"),
   );
   checks.push(
-    row("uv", facts.uv ? "ok" : "fail", "critical", facts.uv ? undefined : "required for graphifyy"),
+    row("uv", facts.uv ? "ok" : "warn", "optional", facts.uv ? undefined : "not installed; ai-dev can use pipx/pip fallback"),
   );
+  checks.push(row("Python installer", facts.installer === "no uv, pipx, or python/pip found" ? "warn" : "ok", "important", facts.installer));
   checks.push(
     row(
       "graphifyy",
       facts.graphifyy ? "ok" : "fail",
       "critical",
-      facts.graphifyy ? undefined : "not installed",
+      facts.graphifyy ? undefined : "not installed; Fix: ai-dev deps install graphify",
     ),
   );
   checks.push(
@@ -352,7 +356,7 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
       "graphify command",
       facts.graphifyCmd ? "ok" : "fail",
       "critical",
-      facts.graphifyCmd ? undefined : "not on PATH",
+      facts.graphifyCmd ? undefined : "not on PATH; Fix: ai-dev deps install graphify",
     ),
   );
 
@@ -396,7 +400,7 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
         "CLAUDE.md",
         facts.claudeMd ? "ok" : "warn",
         "important",
-        facts.claudeMd ? undefined : "missing (run `ai-dev init`)",
+        facts.claudeMd ? undefined : "missing; Fix: ai-dev init",
       ),
     );
     checks.push(
@@ -404,7 +408,7 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
         "Graphify integration",
         facts.integration ? "ok" : "warn",
         "important",
-        facts.integration ? undefined : "block missing from CLAUDE.md",
+        facts.integration ? undefined : "block missing from CLAUDE.md; Fix: ai-dev doctor --fix",
       ),
     );
   }
@@ -418,7 +422,7 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
           ? undefined
           : "built; skipped by config for init"
         : facts.graphBuildEnabled
-          ? "not built"
+          ? "not built; Fix: ai-dev graph rebuild --code-only"
           : "skipped by config",
     ),
   );
@@ -427,7 +431,7 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
       ".gitignore entries",
       facts.gitignoreOk ? "ok" : "warn",
       "important",
-      facts.gitignoreOk ? undefined : "missing entries",
+      facts.gitignoreOk ? undefined : "missing entries; Fix: ai-dev doctor --fix",
     ),
   );
   checks.push(
@@ -435,7 +439,7 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
       ".claudeignore entries",
       facts.claudeignoreOk ? "ok" : "warn",
       "important",
-      facts.claudeignoreOk ? undefined : "missing entries",
+      facts.claudeignoreOk ? undefined : "missing entries; Fix: ai-dev doctor --fix",
     ),
   );
   checks.push(
@@ -445,12 +449,12 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
       "important",
       facts.graphifyignoreOk
         ? undefined
-        : "missing code-only asset ignore entries",
+        : "missing code-only asset ignore entries; Fix: ai-dev doctor --fix",
     ),
   );
 
-  if (facts.artifacts.agentsMd) checks.push(row("AGENTS.md", facts.agentsMd ? "ok" : "warn", "important", facts.agentsMd ? undefined : "missing"));
-  if (facts.artifacts.opencodeConfig) checks.push(row("opencode.jsonc", facts.opencodeConfig ? "ok" : "warn", "important", facts.opencodeConfig ? undefined : "missing"));
+  if (facts.artifacts.agentsMd) checks.push(row("AGENTS.md", facts.agentsMd ? "ok" : "warn", "important", facts.agentsMd ? undefined : "missing; Fix: ai-dev doctor --fix"));
+  if (facts.artifacts.opencodeConfig) checks.push(row("opencode.jsonc", facts.opencodeConfig ? "ok" : "warn", "important", facts.opencodeConfig ? undefined : "missing; Fix: ai-dev doctor --fix"));
   if (facts.artifacts.cursorRules) checks.push(row("Cursor rules", facts.cursorRules ? "ok" : "warn", "optional", facts.cursorRules ? undefined : "missing"));
   if (facts.artifacts.copilotInstructions) checks.push(row("Copilot instructions", facts.copilotInstructions ? "ok" : "warn", "optional", facts.copilotInstructions ? undefined : "missing"));
 
@@ -497,7 +501,7 @@ const CLAUDE_READY_STATES: ClaudeState[] = ["ready", "session-limited"];
  * state for crafted inputs.
  */
 export function summarizeDoctor(facts: DoctorFacts): DoctorSummary {
-  const graphifyReady = facts.uv && facts.graphifyy && facts.graphifyCmd;
+  const graphifyReady = facts.graphifyy && facts.graphifyCmd;
   const claudeInstalled =
     facts.claude.installed && facts.claude.state !== "npm-only";
   // With requireAuth:false, an authenticated-but-not-yet-logged-in state is a
@@ -508,7 +512,7 @@ export function summarizeDoctor(facts: DoctorFacts): DoctorSummary {
     CLAUDE_READY_STATES.includes(facts.claude.state) || authIssueTolerated;
 
   // Critical dependency failures first.
-  if (!facts.uv || !facts.graphifyy || !facts.graphifyCmd) {
+  if (!facts.graphifyy || !facts.graphifyCmd) {
     return {
       state: "incomplete-graphify",
       lines: ["Setup incomplete. Graphify is not ready."],

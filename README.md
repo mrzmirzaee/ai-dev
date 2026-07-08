@@ -4,7 +4,7 @@ A cross-platform CLI that bootstraps AI development tooling for any project — 
 
 ## What it does
 
-Running `ai-dev init` in a project will:
+Running `ai-dev init` or the interactive `ai-dev wizard` in a project will:
 
 - Detect the project root and project type (React, Vite, Next.js, NestJS, Node.js, Python, PHP/Laravel, or Unknown).
 - Check for `uv`, and install or upgrade the `graphifyy` package (executable: `graphify`).
@@ -13,7 +13,7 @@ Running `ai-dev init` in a project will:
 - Run `graphify claude install` to integrate Graphify with Claude Code.
 - Create or update `CLAUDE.md`, `.claudeignore`, and `.gitignore` — **without overwriting your content** (managed blocks and lines are added only when missing).
 - Optionally build the Graphify graph, handling the semantic-extraction fallback.
-- Surface recommended MCP tools (Context7, Serena, Playwright MCP).
+- Surface, verify, and install recommended MCP tools (Context7, Serena, Playwright MCP).
 
 Everything is **idempotent**: run it as many times as you like.
 
@@ -57,6 +57,8 @@ ai-dev <command> [options]
 
 Bootstraps the current project.
 
+Use `ai-dev init --wizard` or `ai-dev wizard` when you want an interactive first-run setup experience.
+
 Flags:
 
 | Flag | Description |
@@ -65,6 +67,16 @@ Flags:
 | `--skip-graph` | Skip building the Graphify graph. |
 | `--skip-mcp` | Skip MCP guidance and config. |
 | `--force` | Continue even if the folder does not look like a project root. |
+| `--wizard` | Run the interactive setup wizard first. |
+
+### `ai-dev wizard`
+
+Runs an interactive setup flow that detects the project type, writes `ai-dev.config.json`, lets you choose Graphify/Claude/MCP defaults, and can run `ai-dev init` immediately afterward.
+
+```bash
+ai-dev wizard
+ai-dev init --wizard
+```
 
 ### `ai-dev doctor`
 
@@ -91,6 +103,8 @@ The final line is a summary state rather than a blanket "healthy":
 - `Setup incomplete. Graphify is not ready.`
 
 Exit codes: `0` when ready (possibly with warnings), `1` when Claude is installed but not usable, `2` when a critical dependency is missing.
+
+`ai-dev doctor --fix` applies safe, idempotent project fixes by running the same file/setup path as `init` with graph build skipped. It is useful when `doctor` reports missing `CLAUDE.md`, `.gitignore`, `.claudeignore`, or Graphify integration.
 
 ### `ai-dev update`
 
@@ -122,13 +136,17 @@ ai-dev graph rebuild --semantic .graphify/.graphify_semantic.json
 
 Writes (idempotently, in a marked block) a `.graphifyignore` with code-only defaults — ignoring images, docs, and common build folders — so Graphify can build a code-only graph without semantic extraction. It also writes `.ai-dev/graph-ignore-assets-applied.json` so future `graph rebuild` runs know the user already tried this path. Whether Graphify honors `.graphifyignore` depends on your installed Graphify version; the command states this plainly. If Graphify still detects docs/images after the marker exists, `ai-dev` no longer recommends repeating `graph ignore-assets` and instead explains that this Graphify version may not support `.graphifyignore`.
 
-### `ai-dev mcp list`
+### `ai-dev mcp list` / `doctor` / `install`
 
-Lists recommended MCP tools and their install commands:
+Lists, verifies, and installs recommended MCP tools:
 
 - **Context7** — fresh official documentation for libraries/frameworks.
 - **Serena** — symbol-aware code navigation.
 - **Playwright MCP** — browser automation, UI testing, screenshots.
+
+`ai-dev mcp install <tool>` runs the matching `claude mcp add ...` command for `context7`, `serena`, or `playwright`.
+
+`ai-dev mcp doctor` checks the configured Claude Code MCP server list and reports which enabled tools are missing.
 
 `ai-dev mcp guide` adds an MCP guidance block to `CLAUDE.md`.
 
@@ -181,8 +199,11 @@ Unknown keys are ignored with a warning (so future additions don't hard-fail an 
 ## Examples
 
 ```bash
-# Full setup, interactive
+# Full setup
 npx ai-dev init
+
+# Interactive first-run wizard
+ai-dev wizard
 
 # CI-friendly, no graph build
 ai-dev init --yes --skip-graph
@@ -192,6 +213,14 @@ ai-dev init --force
 
 # Check what's configured
 ai-dev doctor
+
+# Apply safe project setup fixes
+ai-dev doctor --fix
+
+# Install MCP servers
+ai-dev mcp install context7
+ai-dev mcp install playwright
+ai-dev mcp doctor
 
 # Refresh the graph after big changes
 ai-dev graph rebuild

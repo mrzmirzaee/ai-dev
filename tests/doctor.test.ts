@@ -45,6 +45,7 @@ function healthyFacts(overrides: Partial<DoctorFacts> = {}): DoctorFacts {
     enabledMcp: RECOMMENDED_MCP_TOOLS,
     configPath: "/proj/ai-dev.config.json",
     requireAuth: true,
+    updateClaudeMd: true,
     ...overrides,
   };
 }

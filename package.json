@@ -1,6 +1,6 @@
 {
   "name": "ai-dev",
-  "version": "0.3.0",
+  "version": "1.0.0",
   "description": "Cross-platform CLI that bootstraps AI development tooling (Claude Code + Graphify + MCP) for any project.",
   "type": "module",
   "license": "MIT",
@@ -20,7 +20,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "ai-dev.config.example.json"
   ],
   "engines": {
     "node": ">=18"

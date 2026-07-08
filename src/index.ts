@@ -7,16 +7,17 @@ import {
   graphIgnoreAssetsCommand,
   graphRebuildCommand,
 } from "./commands/graph.js";
-import { mcpGuideCommand, mcpListCommand } from "./commands/mcp.js";
+import { mcpDoctorCommand, mcpGuideCommand, mcpInstallCommand, mcpListCommand } from "./commands/mcp.js";
 import {
   configInitCommand,
   configShowCommand,
 } from "./commands/config.js";
+import { wizardCommand } from "./commands/wizard.js";
 import { ConfigError, loadConfig, resolveInitOptions } from "./core/config.js";
 import { logger } from "./core/logger.js";
 import { ExitCode, type InitOptions, type ProjectType } from "./types.js";
 
-const VERSION = "0.3.0";
+const VERSION = "1.0.0";
 
 function finish(code: number): never {
   process.exit(code);
@@ -40,11 +41,15 @@ async function main(): Promise<void> {
     .option("--skip-graph", "Skip building the Graphify graph.")
     .option("--skip-mcp", "Skip MCP guidance and config.")
     .option("--force", "Continue even if this folder is not a project root.")
+    .option("--wizard", "Run the interactive setup wizard before init.")
     .option(
       "--project-type <type>",
       "Override project-type detection (e.g. Next.js, Vite, Node.js).",
     )
     .action(async (opts: Record<string, unknown>) => {
+      if (opts.wizard) {
+        finish(await wizardCommand(process.cwd(), { force: opts.force as boolean | undefined }));
+      }
       let loaded: Awaited<ReturnType<typeof loadConfig>>;
       try {
         loaded = await loadConfig(process.cwd());
@@ -79,8 +84,19 @@ async function main(): Promise<void> {
   program
     .command("doctor")
     .description("Check environment health.")
-    .action(async () => {
-      finish(await doctorCommand());
+    .option("--fix", "Apply safe, idempotent fixes for missing project setup files.")
+    .action(async (opts: { fix?: boolean }) => {
+      finish(await doctorCommand(process.cwd(), { fix: opts.fix }));
+    });
+
+  // wizard
+  program
+    .command("wizard")
+    .description("Run the interactive AI development setup wizard.")
+    .option("-y, --yes", "Non-interactive mode; write defaults and run init.")
+    .option("--force", "Continue even if this folder is not a project root.")
+    .action(async (opts: { yes?: boolean; force?: boolean }) => {
+      finish(await wizardCommand(process.cwd(), opts));
     });
 
   // update
@@ -153,6 +169,19 @@ async function main(): Promise<void> {
     .description("List recommended MCP tools.")
     .action(async () => {
       finish(await mcpListCommand());
+    });
+  mcp
+    .command("doctor")
+    .description("Check which recommended MCP servers are configured in Claude Code.")
+    .action(async () => {
+      finish(await mcpDoctorCommand());
+    });
+  mcp
+    .command("install")
+    .argument("<tool>", "MCP tool key: context7, serena, or playwright")
+    .description("Install a recommended MCP server into Claude Code.")
+    .action(async (tool: string) => {
+      finish(await mcpInstallCommand(tool));
     });
   mcp
     .command("guide")

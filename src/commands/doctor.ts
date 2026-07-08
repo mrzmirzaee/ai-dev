@@ -20,9 +20,11 @@ import {
   loadConfig,
   resolveClaudeSettings,
   resolveProjectType,
+  resolveInitOptions,
 } from "../core/config.js";
+import { initCommand } from "./init.js";
 import { logger } from "../core/logger.js";
-import { type McpTool } from "../core/mcp.js";
+import { listConfiguredMcpServers, type McpTool } from "../core/mcp.js";
 import { AI_DEV_SETUP_END, AI_DEV_SETUP_START } from "../templates/claudeMd.js";
 import { CLAUDEIGNORE_LINES, GITIGNORE_LINES } from "../templates/ignores.js";
 import {
@@ -55,6 +57,8 @@ export interface DoctorFacts {
   configPath: string | null;
   /** Whether Claude auth/session problems should block readiness. */
   requireAuth: boolean;
+  /** Whether CLAUDE.md updates are enabled in config. */
+  updateClaudeMd: boolean;
 }
 
 function row(
@@ -87,6 +91,10 @@ export interface GatherDoctorFactsOptions {
   config?: AiDevConfig;
   /** Config file path (from the loader); resolved via discovery when omitted. */
   configPath?: string | null;
+  /** Probe real MCP configuration. Runtime doctor enables this; unit tests keep it off. */
+  probeMcp?: boolean;
+  /** Optional MCP configuration override for tests. */
+  mcpConfigured?: Record<string, boolean>;
 }
 
 /** Map a Claude state to the two readiness rows doctor should display. */
@@ -222,14 +230,22 @@ export async function gatherDoctorFacts(
 
   const config = options.config ?? {};
   const enabledMcp = enabledMcpTools(config);
-  const mcpConfigured: Record<string, boolean> = {};
-  for (const tool of enabledMcp) mcpConfigured[tool.key] = false;
 
   const configPath =
     options.configPath !== undefined
       ? options.configPath
       : findConfigFile(project.root);
-  const { requireAuth } = resolveClaudeSettings(config);
+  let mcpConfigured: Record<string, boolean> = {};
+  if (options.mcpConfigured) {
+    mcpConfigured = options.mcpConfigured;
+  } else if (options.probeMcp) {
+    const list = await listConfiguredMcpServers();
+    for (const tool of enabledMcp) mcpConfigured[tool.key] = list.configured.has(tool.key);
+  } else {
+    for (const tool of enabledMcp) mcpConfigured[tool.key] = false;
+  }
+
+  const { requireAuth, updateClaudeMd } = resolveClaudeSettings(config);
 
   return {
     nodeVersion: process.version,
@@ -248,6 +264,7 @@ export async function gatherDoctorFacts(
     enabledMcp,
     configPath,
     requireAuth,
+    updateClaudeMd,
   };
 }
 
@@ -289,22 +306,29 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
       facts.projectType,
     ),
   );
-  checks.push(
-    row(
-      "CLAUDE.md",
-      facts.claudeMd ? "ok" : "warn",
-      "important",
-      facts.claudeMd ? undefined : "missing (run `ai-dev init`)",
-    ),
-  );
-  checks.push(
-    row(
-      "Graphify integration",
-      facts.integration ? "ok" : "warn",
-      "important",
-      facts.integration ? undefined : "block missing from CLAUDE.md",
-    ),
-  );
+  if (!facts.updateClaudeMd) {
+    checks.push(row("CLAUDE.md", "ok", "optional", "disabled by config"));
+    checks.push(
+      row("Graphify integration", "ok", "optional", "disabled by config"),
+    );
+  } else {
+    checks.push(
+      row(
+        "CLAUDE.md",
+        facts.claudeMd ? "ok" : "warn",
+        "important",
+        facts.claudeMd ? undefined : "missing (run `ai-dev init`)",
+      ),
+    );
+    checks.push(
+      row(
+        "Graphify integration",
+        facts.integration ? "ok" : "warn",
+        "important",
+        facts.integration ? undefined : "block missing from CLAUDE.md",
+      ),
+    );
+  }
   checks.push(
     row(
       "Graphify graph",
@@ -435,8 +459,8 @@ export function summarizeDoctor(facts: DoctorFacts): DoctorSummary {
   }
 
   const anyWarn =
-    !facts.claudeMd ||
-    !facts.integration ||
+    (facts.updateClaudeMd && !facts.claudeMd) ||
+    (facts.updateClaudeMd && !facts.integration) ||
     !facts.gitignoreOk ||
     !facts.claudeignoreOk ||
     facts.claude.state === "session-limited" ||
@@ -463,7 +487,12 @@ export function summarizeDoctor(facts: DoctorFacts): DoctorSummary {
  * Run the doctor command: print all checks, then the summary, and return the
  * derived exit code.
  */
-export async function doctorCommand(cwd = process.cwd()): Promise<ExitCodeValue> {
+export interface DoctorCommandOptions { fix?: boolean }
+
+export async function doctorCommand(
+  cwd = process.cwd(),
+  options: DoctorCommandOptions = {},
+): Promise<ExitCodeValue> {
   logger.heading("ai-dev doctor");
 
   let config: AiDevConfig = {};
@@ -484,6 +513,7 @@ export async function doctorCommand(cwd = process.cwd()): Promise<ExitCodeValue>
   const facts = await gatherDoctorFacts(cwd, {
     config,
     configPath: loadedConfigPath,
+    probeMcp: true,
   });
   const checks = factsToChecks(facts);
 
@@ -507,6 +537,17 @@ export async function doctorCommand(cwd = process.cwd()): Promise<ExitCodeValue>
       logger.warn(line);
     }
   }
+  if (options.fix) {
+    logger.info("");
+    logger.heading("doctor --fix");
+    logger.detail("Running safe, idempotent project setup fixes.");
+    return initCommand(
+      resolveInitOptions({ yes: true, skipGraph: true, force: true }, config),
+      cwd,
+      { config },
+    );
+  }
+
   return summary.exitCode;
 }
 

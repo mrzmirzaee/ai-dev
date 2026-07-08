@@ -4,6 +4,7 @@ import ora from "ora";
 import { detectProject } from "../core/detect.js";
 import {
   enabledMcpTools,
+  resolveBackend,
   resolveClaudeSettings,
   resolveProjectType,
 } from "../core/config.js";
@@ -196,7 +197,7 @@ export async function initCommand(
     logger.heading("Building Graphify graph");
     const spinner = ora({ text: "Building graph...", stream: process.stdout }).start();
     try {
-      const outcome = await buildGraph(project.root);
+      const outcome = await buildGraph(project.root, { backend: resolveBackend(undefined, config) });
       if (outcome.kind === "built") spinner.succeed("Graph built.");
       else if (outcome.kind === "instructions")
         spinner.info("Semantic extraction required.");

@@ -24,7 +24,7 @@ import {
   isGraphifyAvailable,
   runGraphifyClaudeInstall,
 } from "../core/graphify.js";
-import { renderGraphOutcome } from "./graph.js";
+import { ensureGraphifyIgnoreAssets, renderGraphOutcome } from "./graph.js";
 import { enableFileLogging, logger } from "../core/logger.js";
 import {
   ExitCode,
@@ -130,6 +130,12 @@ export async function initCommand(
       IGNORE_SECTION_HEADER,
     );
     describeChange(claudeignore.change, ".claudeignore");
+
+    const graphifyignore = await ensureGraphifyIgnoreAssets(project.root);
+    describeChange(graphifyignore, ".graphifyignore");
+    logger.detail(
+      ".graphifyignore keeps common public/assets/media folders out of the code graph.",
+    );
   } catch (err) {
     failed = true;
     logger.error(

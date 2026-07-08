@@ -17,7 +17,7 @@ import { ConfigError, loadConfig, resolveInitOptions } from "./core/config.js";
 import { logger } from "./core/logger.js";
 import { ExitCode, type InitOptions, type ProjectType } from "./types.js";
 
-const VERSION = "1.0.0";
+const VERSION = "1.2.0";
 
 function finish(code: number): never {
   process.exit(code);

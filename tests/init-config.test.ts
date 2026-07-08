@@ -52,6 +52,7 @@ describe("init honors claude.updateClaudeMd", () => {
     // ignore files are still written
     expect(await fs.pathExists(path.join(tmp, ".gitignore"))).toBe(true);
     expect(await fs.pathExists(path.join(tmp, ".claudeignore"))).toBe(true);
+    expect(await fs.pathExists(path.join(tmp, ".graphifyignore"))).toBe(true);
     // and the CLAUDE.md-rewriting graphify step is skipped
     expect(graphify.runGraphifyClaudeInstall).not.toHaveBeenCalled();
   });
@@ -62,8 +63,26 @@ describe("init honors claude.updateClaudeMd", () => {
     });
     expect(code).toBe(ExitCode.Success);
     expect(await fs.pathExists(path.join(tmp, "CLAUDE.md"))).toBe(true);
+    expect(await fs.pathExists(path.join(tmp, ".graphifyignore"))).toBe(true);
     const body = await fs.readFile(path.join(tmp, "CLAUDE.md"), "utf8");
     // MCP guidance block present when CLAUDE.md updates are enabled
     expect(body).toContain("AI_DEV_MCP_START");
+  });
+});
+
+
+describe("init writes portable ignore defaults", () => {
+  it("ignores local Claude settings and common public/assets directories", async () => {
+    const code = await initCommand(opts, tmp, {});
+    expect(code).toBe(ExitCode.Success);
+
+    const gitignore = await fs.readFile(path.join(tmp, ".gitignore"), "utf8");
+    expect(gitignore).toContain(".claude/settings.json");
+    expect(gitignore).toContain(".ai-dev/");
+
+    const graphifyignore = await fs.readFile(path.join(tmp, ".graphifyignore"), "utf8");
+    expect(graphifyignore).toContain("public/");
+    expect(graphifyignore).toContain("assets/");
+    expect(graphifyignore).toContain("*.min.js");
   });
 });

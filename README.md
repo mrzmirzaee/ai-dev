@@ -11,7 +11,7 @@ Running `ai-dev init` or the interactive `ai-dev wizard` in a project will:
 - Locate `graphify` even when it is installed outside your `PATH` (common on Windows).
 - Detect Claude Code (`claude` / `claude.cmd`) and print install instructions if missing.
 - Run `graphify claude install` to integrate Graphify with Claude Code.
-- Create or update `CLAUDE.md`, `.claudeignore`, and `.gitignore` — **without overwriting your content** (managed blocks and lines are added only when missing).
+- Create or update `CLAUDE.md`, `.claudeignore`, `.gitignore`, and `.graphifyignore` — **without overwriting your content** (managed blocks and lines are added only when missing).
 - Optionally build the Graphify graph, handling the semantic-extraction fallback.
 - Surface, verify, and install recommended MCP tools (Context7, Serena, Playwright MCP).
 
@@ -104,7 +104,7 @@ The final line is a summary state rather than a blanket "healthy":
 
 Exit codes: `0` when ready (possibly with warnings), `1` when Claude is installed but not usable, `2` when a critical dependency is missing.
 
-`ai-dev doctor --fix` applies safe, idempotent project fixes by running the same file/setup path as `init` with graph build skipped. It is useful when `doctor` reports missing `CLAUDE.md`, `.gitignore`, `.claudeignore`, or Graphify integration.
+`ai-dev doctor --fix` applies safe, idempotent project fixes by running the same file/setup path as `init` with graph build skipped. It is useful when `doctor` reports missing `CLAUDE.md`, `.gitignore`, `.claudeignore`, `.graphifyignore`, or Graphify integration.
 
 ### `ai-dev update`
 
@@ -134,7 +134,7 @@ ai-dev graph rebuild --semantic .graphify/.graphify_semantic.json
 
 ### `ai-dev graph ignore-assets`
 
-Writes (idempotently, in a marked block) a `.graphifyignore` with code-only defaults — ignoring images, docs, and common build folders — so Graphify can build a code-only graph without semantic extraction. It also writes `.ai-dev/graph-ignore-assets-applied.json` so future `graph rebuild` runs know the user already tried this path. Whether Graphify honors `.graphifyignore` depends on your installed Graphify version; the command states this plainly. If Graphify still detects docs/images after the marker exists, `ai-dev` no longer recommends repeating `graph ignore-assets` and instead explains that this Graphify version may not support `.graphifyignore`.
+Writes (idempotently, in a marked block) a `.graphifyignore` with code-only defaults — ignoring `public/`, common asset/static folders, images, docs, binary media, minified files, and common build folders — so Graphify can build a code-only graph without semantic extraction. It also writes `.ai-dev/graph-ignore-assets-applied.json` so future `graph rebuild` runs know the user already tried this path. Whether Graphify honors `.graphifyignore` depends on your installed Graphify version; the command states this plainly. If Graphify still detects docs/images after the marker exists, `ai-dev` no longer recommends repeating `graph ignore-assets` and instead explains that this Graphify version may not support `.graphifyignore`.
 
 ### `ai-dev mcp list` / `doctor` / `install`
 
@@ -277,6 +277,10 @@ ai-dev graph rebuild --semantic .graphify/.graphify_semantic.json
 If Claude Code is not authenticated, run `claude` / `claude login` first; if it's session-limited, wait for the reset time shown and re-run `ai-dev graph rebuild`. For asset-heavy frontends where you only want a code graph, run `ai-dev graph ignore-assets` and rebuild. If rebuild still reports docs/images afterward, your Graphify version likely does not honor `.graphifyignore`; use Claude Code after reset, set a provider API key, or run Graphify on a code-only subdirectory manually if appropriate.
 
 Full Graphify output for any failed run is saved to `.ai-dev-setup.log`.
+### Portable Claude settings
+
+`graphify claude install` may create `.claude/settings.json` with an absolute local executable path on some systems. `ai-dev` now adds `.claude/settings.json` to `.gitignore` and `.claudeignore` by default so local Claude hook settings do not get committed accidentally or break teammates on different machines. Each developer can run `ai-dev init` locally to generate their own settings.
+
 
 ## Windows notes
 

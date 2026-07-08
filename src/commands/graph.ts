@@ -48,6 +48,26 @@ async function writeIgnoreAssetsMarker(cwd: string): Promise<void> {
   );
 }
 
+/**
+ * Ensure `.graphifyignore` has ai-dev's code-focused defaults and record that
+ * asset ignore has been applied. Safe to call from init, doctor --fix, or the
+ * explicit graph command.
+ */
+export async function ensureGraphifyIgnoreAssets(
+  cwd: string,
+): Promise<"created" | "updated" | "unchanged"> {
+  const file = path.join(cwd, ".graphifyignore");
+  const change = await ensureBlock(
+    file,
+    GRAPHIFY_IGNORE_START,
+    GRAPHIFY_IGNORE_BLOCK,
+    "",
+    GRAPHIFY_IGNORE_END,
+  );
+  await writeIgnoreAssetsMarker(cwd);
+  return change;
+}
+
 /** Show a note when a project has many assets/docs needing semantic extraction. */
 function maybePrintAssetGuidance(
   assets?: AssetSummary,
@@ -341,17 +361,8 @@ export async function graphIgnoreAssetsCommand(
 ): Promise<ExitCodeValue> {
   logger.heading("ai-dev graph ignore-assets");
   const project = detectProject(cwd);
-  const file = path.join(project.root, ".graphifyignore");
-
   try {
-    const change = await ensureBlock(
-      file,
-      GRAPHIFY_IGNORE_START,
-      GRAPHIFY_IGNORE_BLOCK,
-      "",
-      GRAPHIFY_IGNORE_END,
-    );
-    await writeIgnoreAssetsMarker(project.root);
+    const change = await ensureGraphifyIgnoreAssets(project.root);
     if (change === "unchanged") {
       logger.detail(".graphifyignore already contains the code-only block.");
     } else {

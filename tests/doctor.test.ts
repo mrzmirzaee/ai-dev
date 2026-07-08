@@ -12,7 +12,7 @@ import {
 } from "../src/commands/doctor.js";
 import { ensureBlock, ensureIgnoreLines } from "../src/core/files.js";
 import { AI_DEV_SETUP_START, CLAUDE_MD_SETUP_BLOCK } from "../src/templates/claudeMd.js";
-import { CLAUDEIGNORE_LINES, GITIGNORE_LINES } from "../src/templates/ignores.js";
+import { CLAUDEIGNORE_LINES, GITIGNORE_LINES, GRAPHIFY_IGNORE_LINES } from "../src/templates/ignores.js";
 import type { ClaudeStatus } from "../src/core/claude.js";
 import { RECOMMENDED_MCP_TOOLS } from "../src/core/mcp.js";
 import { ExitCode } from "../src/types.js";
@@ -41,6 +41,7 @@ function healthyFacts(overrides: Partial<DoctorFacts> = {}): DoctorFacts {
     graphExists: true,
     gitignoreOk: true,
     claudeignoreOk: true,
+    graphifyignoreOk: true,
     mcpConfigured: { context7: true, serena: true, playwright: true },
     enabledMcp: RECOMMENDED_MCP_TOOLS,
     configPath: "/proj/ai-dev.config.json",
@@ -98,13 +99,20 @@ describe("collectDoctorChecks", () => {
     let checks = await collectDoctorChecks(tmp);
     expect(byLabel(checks, ".gitignore entries")?.status).toBe("warn");
     expect(byLabel(checks, ".claudeignore entries")?.status).toBe("warn");
+    expect(byLabel(checks, ".graphifyignore entries")?.status).toBe("warn");
 
     await ensureIgnoreLines(path.join(tmp, ".gitignore"), GITIGNORE_LINES);
     await ensureIgnoreLines(path.join(tmp, ".claudeignore"), CLAUDEIGNORE_LINES);
+    await ensureBlock(
+      path.join(tmp, ".graphifyignore"),
+      "# AI_DEV_GRAPHIFY_IGNORE_START",
+      GRAPHIFY_IGNORE_LINES.join("\n"),
+    );
 
     checks = await collectDoctorChecks(tmp);
     expect(byLabel(checks, ".gitignore entries")?.status).toBe("ok");
     expect(byLabel(checks, ".claudeignore entries")?.status).toBe("ok");
+    expect(byLabel(checks, ".graphifyignore entries")?.status).toBe("ok");
   });
 
   it("detects project type from package.json", async () => {

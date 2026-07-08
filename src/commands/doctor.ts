@@ -26,7 +26,7 @@ import { initCommand } from "./init.js";
 import { logger } from "../core/logger.js";
 import { listConfiguredMcpServers, type McpTool } from "../core/mcp.js";
 import { AI_DEV_SETUP_END, AI_DEV_SETUP_START } from "../templates/claudeMd.js";
-import { CLAUDEIGNORE_LINES, GITIGNORE_LINES } from "../templates/ignores.js";
+import { CLAUDEIGNORE_LINES, GITIGNORE_LINES, GRAPHIFY_IGNORE_LINES } from "../templates/ignores.js";
 import {
   ExitCode,
   type AiDevConfig,
@@ -50,6 +50,7 @@ export interface DoctorFacts {
   graphExists: boolean;
   gitignoreOk: boolean;
   claudeignoreOk: boolean;
+  graphifyignoreOk: boolean;
   mcpConfigured: Record<string, boolean>;
   /** MCP tools enabled by config (the ones doctor should report on). */
   enabledMcp: McpTool[];
@@ -203,6 +204,7 @@ export async function gatherDoctorFacts(
     graphPath,
     gitignore,
     claudeignore,
+    graphifyignore,
   ] = await Promise.all([
     commandExists("pnpm"),
     hasUv(),
@@ -219,6 +221,10 @@ export async function gatherDoctorFacts(
     ignoreFileContainsAll(
       path.join(project.root, ".claudeignore"),
       CLAUDEIGNORE_LINES,
+    ),
+    ignoreFileContainsAll(
+      path.join(project.root, ".graphifyignore"),
+      GRAPHIFY_IGNORE_LINES,
     ),
   ]);
 
@@ -260,6 +266,7 @@ export async function gatherDoctorFacts(
     graphExists: graphPath !== null,
     gitignoreOk: gitignore.ok,
     claudeignoreOk: claudeignore.ok,
+    graphifyignoreOk: graphifyignore.ok,
     mcpConfigured,
     enabledMcp,
     configPath,
@@ -351,6 +358,16 @@ export function factsToChecks(facts: DoctorFacts): CheckResult[] {
       facts.claudeignoreOk ? "ok" : "warn",
       "important",
       facts.claudeignoreOk ? undefined : "missing entries",
+    ),
+  );
+  checks.push(
+    row(
+      ".graphifyignore entries",
+      facts.graphifyignoreOk ? "ok" : "warn",
+      "important",
+      facts.graphifyignoreOk
+        ? undefined
+        : "missing code-only asset ignore entries",
     ),
   );
 
@@ -463,6 +480,7 @@ export function summarizeDoctor(facts: DoctorFacts): DoctorSummary {
     (facts.updateClaudeMd && !facts.integration) ||
     !facts.gitignoreOk ||
     !facts.claudeignoreOk ||
+    !facts.graphifyignoreOk ||
     facts.claude.state === "session-limited" ||
     authIssueTolerated ||
     Object.values(facts.mcpConfigured).some((v) => !v) ||

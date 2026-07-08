@@ -110,7 +110,10 @@ export async function ignoreFileContainsAll(
       .map((l) => l.trim())
       .filter(Boolean),
   );
-  const missing = lines.filter((l) => !existingSet.has(l.trim()));
+  const required = lines
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith("#"));
+  const missing = required.filter((l) => !existingSet.has(l));
   return { ok: missing.length === 0, missing };
 }
 

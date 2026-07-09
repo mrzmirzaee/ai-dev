@@ -6,6 +6,7 @@ import { updateCommand } from "./commands/update.js";
 import {
   graphIgnoreAssetsCommand,
   graphRebuildCommand,
+  graphStatusCommand,
 } from "./commands/graph.js";
 import { mcpDoctorCommand, mcpGuideCommand, mcpInstallCommand, mcpListCommand } from "./commands/mcp.js";
 import {
@@ -18,11 +19,16 @@ import { contextCommand } from "./commands/context.js";
 import { depsDoctorCommand, depsInstallCommand } from "./commands/deps.js";
 import { setupCommand } from "./commands/setup.js";
 import { statusCommand } from "./commands/status.js";
+import { presetListCommand, presetShowCommand } from "./commands/presets.js";
+import { cleanCommand } from "./commands/clean.js";
+import { promptCommand } from "./commands/prompt.js";
+import { upgradeCommand as upgradeProjectCommand } from "./commands/upgrade.js";
+import { claudeDoctorCommand, claudeInitCommand } from "./commands/claudeCmd.js";
 import { ConfigError, loadConfig, resolveInitOptions } from "./core/config.js";
 import { logger } from "./core/logger.js";
 import { ExitCode, type AiProvider, type InitOptions, type ProjectType } from "./types.js";
 
-const VERSION = "2.3.0";
+const VERSION = "3.0.0";
 
 function finish(code: number): never {
   process.exit(code);
@@ -110,17 +116,23 @@ async function main(): Promise<void> {
     .command("setup")
     .description("Run one-command project onboarding (init, dependency fixes, optional graph, final doctor).")
     .option("--provider <name>", "Provider preset: claude, opencode, codex, cursor, copilot, or generic")
+    .option("--preset <name>", "Setup preset: chabok, claude, opencode, frontend, backend, mobile, or kmp")
     .option("-y, --yes", "Non-interactive mode; accept defaults.")
     .option("--force", "Continue even if this folder is not a project root.")
     .option("--skip-graph", "Skip graph build during setup.")
     .option("--code-only", "Build a code-only graph when graph build is enabled.")
-    .action(async (opts: { provider?: string; yes?: boolean; force?: boolean; skipGraph?: boolean; codeOnly?: boolean }) => {
+    .option("--allow-dirty", "Allow setup with uncommitted git changes.")
+    .option("--branch <name>", "Create and switch to a branch before setup.")
+    .action(async (opts: { provider?: string; preset?: string; yes?: boolean; force?: boolean; skipGraph?: boolean; codeOnly?: boolean; allowDirty?: boolean; branch?: string }) => {
       finish(await setupCommand({
         provider: opts.provider as AiProvider | undefined,
+        preset: opts.preset as any,
         yes: opts.yes,
         force: opts.force,
         skipGraph: opts.skipGraph,
         codeOnly: opts.codeOnly,
+        allowDirty: opts.allowDirty,
+        branch: opts.branch,
       }));
     });
 
@@ -131,6 +143,41 @@ async function main(): Promise<void> {
     .action(async () => {
       finish(await statusCommand(process.cwd()));
     });
+
+  // presets
+  const preset = program.command("preset").description("Manage setup presets.");
+  preset.command("list").description("List available setup presets.").action(async () => {
+    finish(await presetListCommand());
+  });
+  preset.command("show").argument("<name>", "Preset name").description("Show a preset configuration.").action(async (name: string) => {
+    finish(await presetShowCommand(name));
+  });
+  preset.action(() => { preset.help(); });
+
+  // claude
+  const claude = program.command("claude").description("Claude Code focused setup and diagnostics.");
+  claude.command("doctor").description("Check Claude Code readiness for this project.").action(async () => {
+    finish(await claudeDoctorCommand());
+  });
+  claude.command("init").description("Initialize Claude Code artifacts for this project.").action(async () => {
+    finish(await claudeInitCommand());
+  });
+  claude.action(() => { claude.help(); });
+
+  // clean
+  program.command("clean").description("Remove local ai-dev/Graphify generated cache files.").option("--dry-run", "Show what would be removed without deleting.").action(async (opts: { dryRun?: boolean }) => {
+    finish(await cleanCommand({ dryRun: opts.dryRun }));
+  });
+
+  // upgrade project artifacts
+  program.command("upgrade").description("Upgrade generated ai-dev blocks while preserving custom content.").action(async () => {
+    finish(await upgradeProjectCommand());
+  });
+
+  // prompt
+  program.command("prompt").argument("[kind]", "Prompt kind: bugfix, feature, refactor, review", "default").description("Print a reusable Claude task prompt.").action(async (kind: string) => {
+    finish(await promptCommand(kind));
+  });
 
   // deps
   const deps = program.command("deps").description("Manage external dependencies used by ai-dev.");
@@ -184,12 +231,14 @@ async function main(): Promise<void> {
       "--code-only",
       "Build the graph from the detected code root only (for example src/) to avoid docs/assets.",
     )
-    .action(async (opts: { semantic?: string; backend?: string; codeOnly?: boolean }) => {
+    .option("--if-stale", "Only rebuild when graph metadata shows source files changed.")
+    .action(async (opts: { semantic?: string; backend?: string; codeOnly?: boolean; ifStale?: boolean }) => {
       finish(
         await graphRebuildCommand({
           semantic: opts.semantic,
           backend: opts.backend,
           codeOnly: opts.codeOnly,
+          ifStale: opts.ifStale,
         }),
       );
     });
@@ -200,6 +249,12 @@ async function main(): Promise<void> {
     )
     .action(async () => {
       finish(await graphIgnoreAssetsCommand());
+    });
+  graph
+    .command("status")
+    .description("Check whether the current graph is fresh or stale.")
+    .action(async () => {
+      finish(await graphStatusCommand());
     });
   graph.action(() => {
     graph.help();

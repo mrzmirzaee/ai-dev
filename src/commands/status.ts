@@ -2,6 +2,8 @@ import process from "node:process";
 import { gatherDoctorFacts, summarizeDoctor } from "./doctor.js";
 import { ConfigError, loadConfig } from "../core/config.js";
 import { logger } from "../core/logger.js";
+import { getGraphFreshness } from "../core/graphMeta.js";
+import { detectProject } from "../core/detect.js";
 import { ExitCode, type ExitCodeValue } from "../types.js";
 
 export async function statusCommand(cwd = process.cwd()): Promise<ExitCodeValue> {
@@ -21,6 +23,8 @@ export async function statusCommand(cwd = process.cwd()): Promise<ExitCodeValue>
   }
 
   const facts = await gatherDoctorFacts(cwd, { config, configPath, probeMcp: true });
+  const project = detectProject(cwd);
+  const freshness = await getGraphFreshness(project.root);
   const summary = summarizeDoctor(facts);
   const providerNames = facts.providers.map((p) => p.name).join(", ") || "none";
   const mcpReady = facts.enabledMcp.filter((tool) => facts.mcpConfigured[tool.key]).map((tool) => tool.name);
@@ -30,6 +34,7 @@ export async function statusCommand(cwd = process.cwd()): Promise<ExitCodeValue>
   logger.info(`Claude: ${facts.needsClaude ? facts.claude.state : "disabled"}`);
   logger.info(`Graphify: ${facts.graphifyCmd ? "ready" : "missing"}`);
   logger.info(`Graph: ${facts.graphExists ? facts.graphPath ?? "built" : facts.graphBuildEnabled ? "not built" : "skipped"}`);
+  if (facts.graphExists) logger.info(`Graph freshness: ${freshness.fresh ? "fresh" : `stale (${freshness.reason})`}`);
   logger.info(`MCP: ${mcpReady.length ? mcpReady.join(", ") : "none configured"}`);
   logger.info(`Config: ${facts.configPath ? "present" : "defaults"}`);
   logger.info(`Status: ${summary.lines[0] ?? summary.state}`);

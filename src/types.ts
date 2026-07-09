@@ -80,6 +80,8 @@ export interface GraphRebuildOptions {
   backend?: string;
   /** Build only the detected code root (for example src/) to avoid docs/assets. */
   codeOnly?: boolean;
+  /** Skip rebuild when .ai-dev graph metadata says source files did not change. */
+  ifStale?: boolean;
 }
 
 /**

@@ -10,6 +10,7 @@ import {
   type GraphOutcome,
 } from "../core/graphify.js";
 import { detectProject } from "../core/detect.js";
+import { buildGraphMeta, getGraphFreshness, writeGraphMeta } from "../core/graphMeta.js";
 import { ConfigError, loadConfig, resolveBackend } from "../core/config.js";
 import { ensureBlock } from "../core/files.js";
 import { enableFileLogging, logger } from "../core/logger.js";
@@ -328,6 +329,15 @@ export async function graphRebuildCommand(
   const project = detectProject(cwd);
   enableFileLogging(path.join(project.root, ".ai-dev-setup.log"));
 
+  if (options.ifStale) {
+    const freshness = await getGraphFreshness(project.root);
+    if (freshness.graphExists && freshness.fresh) {
+      logger.success("Graph is already fresh. No rebuild needed.");
+      return ExitCode.Success;
+    }
+    logger.detail(`Graph rebuild needed: ${freshness.reason}.`);
+  }
+
   // Resolve the extract backend: explicit option > config file > default.
   let backend = options.backend;
   if (backend === undefined) {
@@ -365,6 +375,9 @@ export async function graphRebuildCommand(
     const result = await buildGraphFromSemantic(project.root, semanticPath);
     if (result.kind === "built") {
       spinner.succeed(`Graph built successfully (${toRel(result.graphPath)}).`);
+      const meta = await buildGraphMeta(project.root, "full", ".", result.graphPath);
+      await writeGraphMeta(project.root, meta);
+      logger.detail(`Graph metadata updated (.ai-dev/graph-meta.json).`);
       return ExitCode.Success;
     }
     spinner.warn("Semantic extraction ran but no graph.json was produced.");
@@ -398,8 +411,12 @@ export async function graphRebuildCommand(
   }).start();
   try {
     const outcome = await buildGraph(project.root, { backend, target });
-    if (outcome.kind === "built") spinner.succeed("Graph rebuilt.");
-    else if (outcome.kind === "instructions")
+    if (outcome.kind === "built") {
+      spinner.succeed("Graph rebuilt.");
+      const meta = await buildGraphMeta(project.root, options.codeOnly ? "code-only" : "full", target, outcome.graphPath);
+      await writeGraphMeta(project.root, meta);
+      logger.detail(`Graph metadata updated (.ai-dev/graph-meta.json).`);
+    } else if (outcome.kind === "instructions")
       spinner.info("Semantic extraction required.");
     else spinner.stop();
     return await renderGraphOutcome(outcome, project.root);
@@ -409,6 +426,32 @@ export async function graphRebuildCommand(
     );
     return ExitCode.SetupFailed;
   }
+}
+
+
+export async function graphStatusCommand(cwd = process.cwd()): Promise<ExitCodeValue> {
+  logger.heading("ai-dev graph status");
+  const project = detectProject(cwd);
+  const freshness = await getGraphFreshness(project.root);
+  if (!freshness.graphExists) {
+    logger.warn("Graph is not built.");
+    logger.next("Run `ai-dev graph rebuild --code-only`.");
+    return ExitCode.Success;
+  }
+  logger.info(`Graph: ${toRel(freshness.graphPath ?? "graph.json")}`);
+  if (freshness.meta) {
+    logger.info(`Last built: ${freshness.meta.builtAt}`);
+    logger.info(`Mode: ${freshness.meta.mode}`);
+    logger.info(`Target: ${freshness.meta.target}`);
+    logger.info(`Indexed files: ${freshness.meta.fileCount}`);
+  }
+  if (freshness.fresh) {
+    logger.success("Graph is fresh.");
+  } else {
+    logger.warn(`Graph is stale: ${freshness.reason}.`);
+    logger.next("Run `ai-dev graph rebuild --code-only`.");
+  }
+  return ExitCode.Success;
 }
 
 /**

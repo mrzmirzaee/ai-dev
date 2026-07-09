@@ -1,6 +1,6 @@
 {
   "name": "@mrmamado/ai-dev",
-  "version": "2.3.0",
+  "version": "3.0.0",
   "description": "Bootstrap any repository for AI coding tools.",
   "type": "module",
   "license": "MIT",
@@ -22,7 +22,7 @@
     "mcp"
   ],
   "bin": {
-    "ai-dev": "./dist/index.js"
+    "ai-dev": "dist/index.js"
   },
   "files": [
     "dist",
